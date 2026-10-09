@@ -1737,6 +1737,9 @@ remove_droiddeck_hook() {
 		sed -i '/droiddeck-luatools-hook/d' "$autostart" 2>/dev/null || true
 	fi
 
+	rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/luatools-start.desktop" \
+	      "$HOME/Desktop/Start LuaTools.desktop" 2>/dev/null || true
+
 	log_success "$(L "DroidDeck supervisor hook removed" \
 	                 "Hook do supervisor DroidDeck removido")"
 }

@@ -2718,15 +2718,28 @@ install_droiddeck_hook() {
 		fi
 	fi
 
-	# DroidDeck re-copies /etc/xdg/labwc/autostart over ~/.config/labwc/autostart
-	# at every session start, which erases the line above. The system copy is
-	# the source of that refresh, so register the supervisor there too.
-	local sys_autostart="/etc/xdg/labwc/autostart"
-	if [ -w "$sys_autostart" ] && ! grep -q "droiddeck-luatools-hook" "$sys_autostart" 2>/dev/null; then
-		printf '\n# LuaTools / Lumen supervisor for DroidDeck\n"$HOME/.local/share/Lumen/droiddeck-luatools-hook.sh" start &\n' >> "$sys_autostart" \
-			&& log_info "$(L "Registered autostart in $sys_autostart" \
-			             "Autostart registrado em $sys_autostart")"
-	fi
+	# DroidDeck rebuilds /usr/local/bin and /etc/xdg at every launch and offers no
+	# user startup hook, so nothing registered there survives. A launcher in $HOME
+	# does: one tap per session starts the supervisor, which then follows Steam.
+	local apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+	local desk_dir="$HOME/Desktop"
+	mkdir -p "$apps_dir" "$desk_dir" 2>/dev/null || true
+	local launcher="$apps_dir/luatools-start.desktop"
+	cat > "$launcher" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Start LuaTools
+Comment=Start the LuaTools supervisor for this DroidDeck session
+Exec=bash -c '"$hook_dest" start'
+Icon=system-run
+Terminal=false
+Categories=Utility;
+DESKTOP
+	chmod +x "$launcher" 2>/dev/null || true
+	cp -f "$launcher" "$desk_dir/Start LuaTools.desktop" 2>/dev/null \
+		&& chmod +x "$desk_dir/Start LuaTools.desktop" 2>/dev/null || true
+	log_info "$(L "Added a 'Start LuaTools' launcher (desktop + app menu); tap it once per DroidDeck session." \
+	             "Atalho 'Start LuaTools' adicionado (desktop + menu); toque uma vez por sessão do DroidDeck.")"
 
 	# Ensure Steam CEF remote debugging flag exists
 	mkdir -p "$HOME/.local/share/Steam" "$HOME/.steam/steam" 2>/dev/null || true

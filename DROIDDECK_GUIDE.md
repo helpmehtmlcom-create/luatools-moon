@@ -20,7 +20,7 @@ This guide documents the installation, architecture, and operation of **luatools
 ├────────────────────────────────────────────────────────────────────────┤
 │ DroidDeck Supervisor Daemon                                            │
 │   Script: $HOME/.local/share/Lumen/droiddeck-luatools-hook.sh          │
-│   Autostart: ~/.config/labwc/autostart                                 │
+│   Start: "Start LuaTools" launcher (desktop / app menu), once per run  │
 ├────────────────────────────────────────────────────────────────────────┤
 │ Lumen Sidecar (x86_64 translated via FEX-Emu / native ARM64)           │
 │   Multi-arch runner: lumen-runner.sh -> droiddeck-fex run -- lumen.bin │
@@ -93,11 +93,16 @@ The installer will:
 - Extract Lumen and install `lumen-runner.sh`, `peerauth.lua`, and `cefport.lua`.
 - Install the LuaTools plugin and configure `downloader.sh`.
 - Install the background session supervisor (`droiddeck-luatools-hook.sh`).
-- Register autostart in `~/.config/labwc/autostart`.
+- Add a **Start LuaTools** launcher (desktop and app menu); DroidDeck does not keep autostart entries.
 
 ---
 
 ## 3. Managing the Service
+
+DroidDeck rebuilds `/usr/local/bin` and `/etc/xdg/labwc/autostart` at every launch and has no
+user startup hook, so the supervisor cannot start itself. The installer adds a **Start LuaTools**
+launcher to the desktop and the app menu. Tap it once after DroidDeck starts; the supervisor then
+starts and stops Lumen with Steam on its own. LuaTools appears on Steam Store and Community pages.
 
 The DroidDeck supervisor automatically monitors Steam and starts/stops Lumen:
 
