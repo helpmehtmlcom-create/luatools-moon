@@ -372,6 +372,24 @@ is_immutable_distro() {
 	return 1
 }
 
+# True on DroidDeck (Android / Termux / PRoot environment with ARM64 / Poco F9 Ultra)
+is_droiddeck() {
+	[ -n "${DROIDDECK_SESSION:-}" ] && return 0
+	[ -n "${BL_LAUNCH_DIR:-}" ] && return 0
+	[ -n "${BL_CDP_PORT:-}" ] && return 0
+	[ -x "/usr/local/bin/droiddeck-fex" ] && return 0
+	[ -d "$HOME/.cache/droiddeck" ] && return 0
+	[ -d "$HOME/.config/droiddeck" ] && return 0
+	[ -f "$HOME/.local/share/Steam/steamrtarm64/steam" ] && return 0
+	[ -f "/etc/droiddeck-release" ] && return 0
+	if [ -d "/system/bin" ] || [ -f "/system/build.prop" ] || [ -d "/data/data/com.termux" ]; then
+		case "$(uname -m)" in
+			aarch64|arm64) return 0 ;;
+		esac
+	fi
+	return 1
+}
+
 # ----------------------------------------------------------------------------
 # Game Mode (gamescope session) detection — distro-agnostic
 # ----------------------------------------------------------------------------
@@ -539,6 +557,11 @@ ensure_sudo() {
 # Pre-flight checks
 # ============================================================================
 check_not_root() {
+	if is_droiddeck; then
+		log_info "$(L "Running in DroidDeck environment (PRoot UID: $(id -u))" \
+		             "Executando em ambiente DroidDeck (PRoot UID: $(id -u))")"
+		return 0
+	fi
 	if [ "$(id -u)" -eq 0 ]; then
 		fail "$(L "Do not run this installer as root. Run it as your normal user." \
 		          "Não rode este instalador como root. Rode como seu usuário normal.")"
@@ -546,9 +569,25 @@ check_not_root() {
 }
 
 check_arch() {
-	if [ "$(uname -m)" != "x86_64" ]; then
-		fail "$(L "Unsupported architecture: $(uname -m). Only x86_64 is supported." \
-		          "Arquitetura não suportada: $(uname -m). Apenas x86_64 é suportado.")"
+	local arch
+	arch="$(uname -m)"
+	if is_droiddeck; then
+		case "$arch" in
+			aarch64|arm64)
+				log_success "$(L "Architecture ARM64 (DroidDeck) OK" \
+				                 "Arquitetura ARM64 (DroidDeck) OK")"
+				return 0
+				;;
+			x86_64)
+				log_success "$(L "Architecture x86_64 (DroidDeck FEX) OK" \
+				                 "Arquitetura x86_64 (DroidDeck FEX) OK")"
+				return 0
+				;;
+		esac
+	fi
+	if [ "$arch" != "x86_64" ]; then
+		fail "$(L "Unsupported architecture: $arch. Only x86_64 is supported." \
+		          "Arquitetura não suportada: $arch. Apenas x86_64 é suportado.")"
 	fi
 	log_success "$(L "Architecture x86_64 OK" "Arquitetura x86_64 OK")"
 }
@@ -697,6 +736,23 @@ resolve_shutdown_launcher() {
 # separately: having Flatpak/Snap installed must not hide a working native
 # installation, and a coexistence diagnostic needs the concrete native path.
 find_native_steam_launcher() {
+	if is_droiddeck; then
+		local droiddeck_candidates=(
+			"$HOME/.local/share/Steam/steamrtarm64/steam"
+			"/usr/local/bin/droiddeck-steam"
+			"/usr/local/bin/steam"
+			"/usr/bin/steam"
+			"$HOME/.local/share/Steam/steam.sh"
+		)
+		local dc
+		for dc in "${droiddeck_candidates[@]}"; do
+			if [ -f "$dc" ] && [ -x "$dc" ]; then
+				printf '%s\n' "$dc"
+				return 0
+			fi
+		done
+	fi
+
 	# A native package-manager install puts the launcher in a system bin dir.
 	# Both search lists are overridable so tests can be isolated from whatever
 	# Steam happens to be installed on the host running them.
@@ -866,6 +922,21 @@ check_steam_native() {
 check_steam_bootstrapped() {
 	local link="$HOME/.steam/steam"
 	local root isolated="" native_launcher=""
+
+	if is_droiddeck; then
+		if [ -f "$HOME/.local/share/Steam/steamrtarm64/steam" ] \
+		   || [ -f "$HOME/.local/share/Steam/steam.sh" ] \
+		   || [ -f "$HOME/.steam/steam/steam.sh" ]; then
+			mkdir -p "$HOME/.steam" 2>/dev/null || true
+			if [ ! -e "$link" ]; then
+				ln -s "$HOME/.local/share/Steam" "$link" 2>/dev/null || true
+			fi
+			log_success "$(L "Steam has been initialized (DroidDeck ARM64)" \
+			                 "Steam já foi inicializada (DroidDeck ARM64)")"
+			return 0
+		fi
+	fi
+
 	root="$(readlink -e -q "$link" 2>/dev/null || true)"
 
 	# Bootstrapped: ~/.steam/steam is a symlink resolving to a dir with steam.sh.
@@ -1294,6 +1365,7 @@ restore_steam_sh() {
 stop_steam() {
 	if ! pgrep -x steam >/dev/null 2>&1 \
 	   && ! pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
+	   && ! pgrep -f 'steamrtarm64/steam' >/dev/null 2>&1 \
 	   && ! pgrep -f '/steam$|/steam ' >/dev/null 2>&1; then
 		log_success "$(L "No running Steam process detected" "Nenhum processo da Steam em execução")"
 		return 0
@@ -1319,7 +1391,8 @@ stop_steam() {
 	local i
 	for i in 1 2 3 4 5 6 7 8; do
 		if ! pgrep -x steam >/dev/null 2>&1 \
-		   && ! pgrep -f 'steamwebhelper' >/dev/null 2>&1; then
+		   && ! pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
+		   && ! pgrep -f 'steamrtarm64/steam' >/dev/null 2>&1; then
 			log_success "$(L "Steam stopped" "Steam parada")"
 			return 0
 		fi
@@ -1329,16 +1402,19 @@ stop_steam() {
 	# Escalate to SIGTERM.
 	pkill -TERM -x steam 2>/dev/null || true
 	pkill -TERM -f 'steamwebhelper' 2>/dev/null || true
+	pkill -TERM -f 'steamrtarm64/steam' 2>/dev/null || true
 	pkill -TERM -f '/steam$|/steam ' 2>/dev/null || true
 	sleep 2
 
 	# Last resort: SIGKILL.
 	if pgrep -x steam >/dev/null 2>&1 \
 	   || pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
+	   || pgrep -f 'steamrtarm64/steam' >/dev/null 2>&1 \
 	   || pgrep -f '/steam$|/steam ' >/dev/null 2>&1; then
 		log_warn "$(L "Steam still running — forcing it to stop" "Steam ainda rodando — forçando o encerramento")"
 		pkill -KILL -x steam 2>/dev/null || true
 		pkill -KILL -f 'steamwebhelper' 2>/dev/null || true
+		pkill -KILL -f 'steamrtarm64/steam' 2>/dev/null || true
 		pkill -KILL -f '/steam$|/steam ' 2>/dev/null || true
 		sleep 1
 	fi
@@ -1999,6 +2075,19 @@ install_slsteam_moon() {
 	                            "setup.sh não encontrado no pacote da release.")"
 	extract_root="$(dirname "$setup")"
 
+	if is_droiddeck; then
+		mkdir -p "$HOME/.config/SLSsteam/manifests"
+		mkdir -p "$HOME/.local/share/SLSsteam/stplug-in"
+		mkdir -p "$HOME/.local/share/Steam"
+		touch "$HOME/.local/share/Steam/.cef-enable-remote-debugging" 2>/dev/null || true
+		touch "$HOME/.steam/steam/.cef-enable-remote-debugging" 2>/dev/null || true
+		seed_slsteam_config "$extract_root/res/config.yaml"
+		set_disable_cloud yes
+		log_success "$(L "slsteam-moon configured for DroidDeck ARM64 (manifests and config ready)" \
+		                 "slsteam-moon configurado para DroidDeck ARM64 (manifestos e config prontos)")"
+		return 0
+	fi
+
 	chmod +x "$setup" 2>/dev/null || true
 	log_info "$(L "Running slsteam-moon setup (this will stop Steam)" \
 	             "Rodando o setup do slsteam-moon (isto vai parar a Steam)")"
@@ -2021,6 +2110,50 @@ install_slsteam_moon() {
 # ============================================================================
 # Step: Lumen (millennium-less LuaTools bridge)
 # ============================================================================
+deploy_droiddeck_lumen_aux() {
+	local dest="$1"
+	local script_dir
+	script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+
+	mkdir -p "$dest/lua"
+
+	# 1. Rename x86_64 lumen to lumen.bin
+	if [ -f "$dest/lumen" ] && [ ! -f "$dest/lumen.bin" ]; then
+		mv -f "$dest/lumen" "$dest/lumen.bin"
+	fi
+
+	# 2. Deploy lumen-runner.sh
+	if [ -n "$script_dir" ] && [ -f "$script_dir/lumen-aux/lumen-runner.sh" ]; then
+		cp -f "$script_dir/lumen-aux/lumen-runner.sh" "$dest/lumen"
+	else
+		curl -fsSL --connect-timeout 10 --max-time 30 \
+			"https://raw.githubusercontent.com/${PLUGIN_REPO}/main/lumen-aux/lumen-runner.sh" \
+			-o "$dest/lumen" 2>/dev/null || true
+	fi
+	chmod +x "$dest/lumen" "$dest/lumen.bin" 2>/dev/null || true
+
+	# 3. Deploy peerauth.lua (Android SELinux /proc/net/tcp bypass)
+	if [ -n "$script_dir" ] && [ -f "$script_dir/lumen-aux/peerauth.lua" ]; then
+		cp -f "$script_dir/lumen-aux/peerauth.lua" "$dest/lua/peerauth.lua"
+	else
+		curl -fsSL --connect-timeout 10 --max-time 30 \
+			"https://raw.githubusercontent.com/${PLUGIN_REPO}/main/lumen-aux/peerauth.lua" \
+			-o "$dest/lua/peerauth.lua" 2>/dev/null || true
+	fi
+
+	# 4. Deploy cefport.lua (BL_CDP_PORT / DroidDeck dynamic port resolver)
+	if [ -n "$script_dir" ] && [ -f "$script_dir/lumen-aux/cefport.lua" ]; then
+		cp -f "$script_dir/lumen-aux/cefport.lua" "$dest/lua/cefport.lua"
+	else
+		curl -fsSL --connect-timeout 10 --max-time 30 \
+			"https://raw.githubusercontent.com/${PLUGIN_REPO}/main/lumen-aux/cefport.lua" \
+			-o "$dest/lua/cefport.lua" 2>/dev/null || true
+	fi
+
+	log_success "$(L "Deployed DroidDeck Lumen runner and network adaptations" \
+	                 "Implantado o executor Lumen e adaptações de rede para DroidDeck")"
+}
+
 # Downloads the lumen release (static binary + lua/) and extracts it to
 # ~/.local/share/Lumen. The Steam wrapper (slsteam-moon setup.sh) launches it
 # as a sidecar; it injects the LuaTools frontend via CDP and hosts the backend.
@@ -2053,12 +2186,9 @@ install_lumen() {
 		         "O binário do Lumen não é um ELF válido")"
 	fi
 
-	# NixOS has no FHS /lib64/ld-linux..., /usr/lib etc., so this prebuilt ELF
-	# can't load its dynamic linker directly. Move it aside and drop a
-	# steam-run shim in its place: every caller (the slsteam-moon wrapper
-	# execs "$dest/lumen" by convention) keeps working unmodified, now inside
-	# an FHS sandbox. steam-run ships automatically with programs.steam.enable.
-	if [ "$(get_distro_id)" = "nixos" ]; then
+	if is_droiddeck; then
+		deploy_droiddeck_lumen_aux "$dest"
+	elif [ "$(get_distro_id)" = "nixos" ]; then
 		command -v steam-run >/dev/null 2>&1 || fail "$(L \
 			"steam-run not found. It ships automatically with programs.steam.enable on NixOS — make sure Steam is enabled and re-run this installer." \
 			"steam-run não encontrado. Ele vem automaticamente com programs.steam.enable no NixOS — confira se a Steam está habilitada e rode o instalador de novo.")"
@@ -2237,6 +2367,15 @@ install_plugin() {
 		             "Plugin atualizado (configurações preservadas)")"
 	else
 		log_success "$(L "Plugin installed" "Plugin instalado")"
+	fi
+
+	if is_droiddeck; then
+		local script_dir
+		script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+		if [ -n "$script_dir" ] && [ -f "$script_dir/plugin/backend/scripts/downloader.sh" ]; then
+			cp -f "$script_dir/plugin/backend/scripts/downloader.sh" "$dest/backend/scripts/downloader.sh" 2>/dev/null || true
+		fi
+		chmod +x "$dest/backend/scripts/downloader.sh" 2>/dev/null || true
 	fi
 }
 
@@ -2430,6 +2569,58 @@ install_steamos_gamemode_dropin() {
 
 	log_success "$(L "Game Mode enabled (SteamOS drop-in: $conf)" \
 	             "Game Mode ativado (drop-in SteamOS: $conf)")"
+}
+
+# ============================================================================
+# Step: DroidDeck Session Supervisor (for Android / Poco F9 Ultra)
+# ============================================================================
+install_droiddeck_hook() {
+	is_droiddeck || return 0
+
+	print_section "$(L "DroidDeck Session Integration" "Integração com a Sessão DroidDeck")"
+
+	local script_dir hook_src hook_dest
+	script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+	hook_dest="$LUMEN_DIR/droiddeck-luatools-hook.sh"
+
+	mkdir -p "$LUMEN_DIR"
+
+	if [ -n "$script_dir" ] && [ -f "$script_dir/scripts/droiddeck-luatools-hook.sh" ]; then
+		cp -f "$script_dir/scripts/droiddeck-luatools-hook.sh" "$hook_dest"
+	else
+		curl -fsSL --connect-timeout 10 --max-time 30 \
+			"https://raw.githubusercontent.com/${PLUGIN_REPO}/main/scripts/droiddeck-luatools-hook.sh" \
+			-o "$hook_dest" 2>/dev/null || true
+	fi
+	chmod +x "$hook_dest" 2>/dev/null || true
+
+	# Install to /usr/local/bin if writable
+	if [ -w "/usr/local/bin" ] || [ "$(id -u)" -eq 0 ]; then
+		cp -f "$hook_dest" "/usr/local/bin/droiddeck-luatools-hook" 2>/dev/null || true
+		chmod +x "/usr/local/bin/droiddeck-luatools-hook" 2>/dev/null || true
+		log_info "$(L "Installed droiddeck-luatools-hook to /usr/local/bin" \
+		             "Instalado droiddeck-luatools-hook em /usr/local/bin")"
+	fi
+
+	# Autostart in DroidDeck (labwc / wayfire)
+	local labwc_dir="${XDG_CONFIG_HOME:-$HOME/.config}/labwc"
+	if [ -d "$labwc_dir" ] || [ -d "$HOME/.config" ]; then
+		mkdir -p "$labwc_dir"
+		local autostart="$labwc_dir/autostart"
+		if ! grep -q "droiddeck-luatools-hook" "$autostart" 2>/dev/null; then
+			printf '\n# LuaTools / Lumen supervisor for DroidDeck\n%s start &\n' "$hook_dest" >> "$autostart"
+			log_info "$(L "Registered autostart in ~/.config/labwc/autostart" \
+			             "Autostart registrado em ~/.config/labwc/autostart")"
+		fi
+	fi
+
+	# Ensure Steam CEF remote debugging flag exists
+	mkdir -p "$HOME/.local/share/Steam" "$HOME/.steam/steam" 2>/dev/null || true
+	touch "$HOME/.local/share/Steam/.cef-enable-remote-debugging" 2>/dev/null || true
+	touch "$HOME/.steam/steam/.cef-enable-remote-debugging" 2>/dev/null || true
+
+	log_success "$(L "DroidDeck session supervisor installed" \
+	                 "Supervisor de sessão DroidDeck instalado")"
 }
 
 # ============================================================================
@@ -2809,6 +3000,13 @@ ensure_cloudredirect_config() {
 }
 
 install_cloudredirect() {
+	if is_droiddeck; then
+		log_info "$(L "CloudRedirect x86 hook is not applicable to native ARM64 Steam in DroidDeck; skipping." \
+		             "O hook x86 do CloudRedirect não se aplica à Steam nativa ARM64 no DroidDeck; pulando.")"
+		set_disable_cloud yes
+		return 0
+	fi
+
 	# Already installed → the user answered this question on a previous run, so
 	# don't ask again. Keep the hook current instead: update it silently when the
 	# published build differs from the deployed one, and do nothing when it
@@ -3003,6 +3201,14 @@ should_autolaunch() {
 # the first post-install launch is injected and the desktop-coverage re-assert
 # runs. Never blocks: returns immediately. No-op if the wrapper is missing.
 do_autolaunch() {
+	if is_droiddeck; then
+		if [ -x "$LUMEN_DIR/droiddeck-luatools-hook.sh" ]; then
+			log_info "$(L "Starting DroidDeck LuaTools supervisor" \
+			             "Iniciando supervisor LuaTools no DroidDeck")"
+			"$LUMEN_DIR/droiddeck-luatools-hook.sh" start
+		fi
+		return 0
+	fi
 	local wrapper="$HOME/.local/share/SLSsteam/path/steam"
 	[ -x "$wrapper" ] || return 0
 	# Start Steam injected, detached. No -silent: a silent first launch doesn't
@@ -3126,6 +3332,9 @@ main() {
 	# (and prompts) ONLY when a gamescope session exists, so normal desktop
 	# installs see nothing here.
 	install_gamemode_hook
+
+	# DroidDeck session supervisor hook (for Android / Poco F9 Ultra)
+	install_droiddeck_hook
 
 	# CloudRedirect (optional cloud saves) is always offered — the prompt
 	# itself defaults to "no" on Enter — even with --noplugin.

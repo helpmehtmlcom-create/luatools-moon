@@ -650,6 +650,57 @@ _collect_client_coredumps() { # $1 stage-dir
 	rm -f "$raw"
 }
 
+is_droiddeck() {
+	[ -n "${DROIDDECK_SESSION:-}" ] && return 0
+	[ -n "${BL_LAUNCH_DIR:-}" ] && return 0
+	[ -n "${BL_CDP_PORT:-}" ] && return 0
+	[ -x "/usr/local/bin/droiddeck-fex" ] && return 0
+	[ -d "$HOME/.cache/droiddeck" ] && return 0
+	[ -d "$HOME/.config/droiddeck" ] && return 0
+	[ -f "$HOME/.local/share/Steam/steamrtarm64/steam" ] && return 0
+	[ -f "/etc/droiddeck-release" ] && return 0
+	if [ -d "/system/bin" ] || [ -f "/system/build.prop" ] || [ -d "/data/data/com.termux" ]; then
+		case "$(uname -m)" in
+			aarch64|arm64) return 0 ;;
+		esac
+	fi
+	return 1
+}
+
+_collect_droiddeck() { # $1 stage-dir  $2 cap
+	local stage="$1" cap="${2:-0}"
+	is_droiddeck || return 0
+
+	local raw
+	raw="$(mktemp "${TMPDIR:-/tmp}/luatools-diag-droiddeck.XXXXXX" 2>/dev/null || true)"
+	[ -n "$raw" ] || return 0
+	{
+		printf 'droiddeck_session: %s\n' "${DROIDDECK_SESSION:-absent}"
+		printf 'bl_launch_dir: %s\n' "${BL_LAUNCH_DIR:-absent}"
+		printf 'bl_cdp_port: %s\n' "${BL_CDP_PORT:-absent}"
+		printf 'droiddeck_fex: %s\n' "$([ -x /usr/local/bin/droiddeck-fex ] && echo present || echo absent)"
+		printf 'steam_arm64_bin: %s\n' "$([ -f "$HOME/.local/share/Steam/steamrtarm64/steam" ] && echo present || echo absent)"
+		printf 'supervisor_hook: %s\n' "$([ -f "$HOME/.local/share/Lumen/droiddeck-luatools-hook.sh" ] && echo present || echo absent)"
+		printf 'supervisor_running: %s\n' "$(pgrep -f 'droiddeck-luatools-hook' >/dev/null 2>&1 && echo yes || echo no)"
+		if [ -f "$HOME/.local/share/Steam/.cef-enable-remote-debugging" ]; then
+			printf 'cef_remote_debugging_flag: present\n'
+		else
+			printf 'cef_remote_debugging_flag: absent\n'
+		fi
+	} > "$raw"
+	scrub < "$raw" > "$stage/droiddeck-status.txt"
+	rm -f "$raw"
+
+	# Collect DroidDeck and supervisor logs
+	local log
+	for log in "$HOME/.cache/droiddeck"/*.log \
+	           "${XDG_RUNTIME_DIR:-/tmp}/droiddeck-luatools"/*.log \
+	           /tmp/droiddeck-luatools/*.log; do
+		[ -f "$log" ] || continue
+		_stage_file "$stage" "droiddeck/$(basename "$log")" "$log" "$cap"
+	done
+}
+
 # Build the diagnostics tarball at $1. $2 = global tail cap in bytes (0 = full
 # logs, cef_log still capped). Only explicit log files are read — never whole
 # config dirs (CloudRedirect holds OAuth tokens; Lumen holds a session token).
@@ -665,6 +716,9 @@ collect() {
 		printf 'luatools-moon diagnostics\n'
 		printf 'date(utc): %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S')"
 		printf 'kernel: %s   arch: %s\n' "$(uname -r 2>/dev/null)" "$(uname -m 2>/dev/null)"
+		if is_droiddeck; then
+			printf 'environment: DroidDeck (Android / PRoot)\n'
+		fi
 		if [ -r /etc/os-release ]; then
 			# shellcheck disable=SC1091
 			( . /etc/os-release >/dev/null 2>&1; printf 'distro: %s %s\n' "${ID:-?}" "${VERSION_ID:-}" )
@@ -672,6 +726,7 @@ collect() {
 		printf 'steam_root: %s\n' "${sr:-NOT FOUND}"
 		printf 'components:'
 		{ [ -d "$HOME/.local/share/Lumen" ] || [ -f "$HOME/.lumen.log" ]; } && printf ' lumen'
+		{ [ -f "$HOME/.local/share/Lumen/droiddeck-luatools-hook.sh" ]; } && printf ' droiddeck-hook'
 		{ [ -d "$HOME/.millennium" ] || [ -d "$HOME/.local/share/millennium" ]; } && printf ' millennium'
 		# Detect the PAYLOAD too, not just its config dir: the hook is installed
 		# under ~/.local/share and only writes ~/.config/CloudRedirect once it has
@@ -696,6 +751,7 @@ collect() {
 	_collect_launch_coverage "$stage"
 	_collect_guard_state "$stage" "$cap"
 	_collect_client_coredumps "$stage"
+	_collect_droiddeck "$stage" "$cap"
 	_stage_file "$stage" "cloudredirect-cr_debug.log"     "$HOME/.config/CloudRedirect/cr_debug.log"     "$cap"
 	_stage_file "$stage" "cloudredirect-cloud_redirect.log" "$HOME/.config/CloudRedirect/cloud_redirect.log" "$cap"
 

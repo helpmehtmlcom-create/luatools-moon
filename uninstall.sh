@@ -105,6 +105,11 @@ print_complete() {
 # Pre-flight
 # ============================================================================
 check_not_root() {
+	if is_droiddeck; then
+		log_info "$(L "Running in DroidDeck environment (PRoot UID: $(id -u))" \
+		             "Executando em ambiente DroidDeck (PRoot UID: $(id -u))")"
+		return 0
+	fi
 	if [ "$(id -u)" -eq 0 ]; then
 		log_error "$(L "Do not run this uninstaller as root. Run it as your normal user." \
 		              "Não rode este desinstalador como root. Rode como seu usuário normal.")"
@@ -160,6 +165,24 @@ is_immutable_distro() {
 	return 1
 }
 
+# True on DroidDeck (Android / Termux / PRoot environment with ARM64 / Poco F9 Ultra)
+is_droiddeck() {
+	[ -n "${DROIDDECK_SESSION:-}" ] && return 0
+	[ -n "${BL_LAUNCH_DIR:-}" ] && return 0
+	[ -n "${BL_CDP_PORT:-}" ] && return 0
+	[ -x "/usr/local/bin/droiddeck-fex" ] && return 0
+	[ -d "$HOME/.cache/droiddeck" ] && return 0
+	[ -d "$HOME/.config/droiddeck" ] && return 0
+	[ -f "$HOME/.local/share/Steam/steamrtarm64/steam" ] && return 0
+	[ -f "/etc/droiddeck-release" ] && return 0
+	if [ -d "/system/bin" ] || [ -f "/system/build.prop" ] || [ -d "/data/data/com.termux" ]; then
+		case "$(uname -m)" in
+			aarch64|arm64) return 0 ;;
+		esac
+	fi
+	return 1
+}
+
 # Privilege-escalation prefix for system-wide removals.
 sudo_prefix() {
 	if is_immutable_distro; then
@@ -179,6 +202,7 @@ sudo_prefix() {
 stop_steam() {
 	if ! pgrep -x steam >/dev/null 2>&1 \
 	   && ! pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
+	   && ! pgrep -f 'steamrtarm64/steam' >/dev/null 2>&1 \
 	   && ! pgrep -f '/steam$|/steam ' >/dev/null 2>&1; then
 		log_success "$(L "No running Steam process detected" "Nenhum processo da Steam em execução")"
 		return 0
@@ -193,7 +217,8 @@ stop_steam() {
 	local i
 	for i in 1 2 3 4 5 6 7 8; do
 		if ! pgrep -x steam >/dev/null 2>&1 \
-		   && ! pgrep -f 'steamwebhelper' >/dev/null 2>&1; then
+		   && ! pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
+		   && ! pgrep -f 'steamrtarm64/steam' >/dev/null 2>&1; then
 			log_success "$(L "Steam stopped" "Steam parada")"
 			return 0
 		fi
@@ -202,15 +227,18 @@ stop_steam() {
 
 	pkill -TERM -x steam 2>/dev/null || true
 	pkill -TERM -f 'steamwebhelper' 2>/dev/null || true
+	pkill -TERM -f 'steamrtarm64/steam' 2>/dev/null || true
 	pkill -TERM -f '/steam$|/steam ' 2>/dev/null || true
 	sleep 2
 
 	if pgrep -x steam >/dev/null 2>&1 \
 	   || pgrep -f 'steamwebhelper' >/dev/null 2>&1 \
+	   || pgrep -f 'steamrtarm64/steam' >/dev/null 2>&1 \
 	   || pgrep -f '/steam$|/steam ' >/dev/null 2>&1; then
 		log_warn "$(L "Steam still running — forcing it to stop" "Steam ainda rodando — forçando o encerramento")"
 		pkill -KILL -x steam 2>/dev/null || true
 		pkill -KILL -f 'steamwebhelper' 2>/dev/null || true
+		pkill -KILL -f 'steamrtarm64/steam' 2>/dev/null || true
 		pkill -KILL -f '/steam$|/steam ' 2>/dev/null || true
 		sleep 1
 	fi
@@ -1461,6 +1489,10 @@ uninstall_luatools_plugin() {
 # anything — otherwise a tick can re-patch the entries we just put back, the same
 # way the systemd guardian did. Mirrors install.sh::stop_lumen.
 stop_lumen() {
+	if is_droiddeck; then
+		pkill -f 'droiddeck-luatools-hook' 2>/dev/null || true
+	fi
+
 	local lumen_bin="$HOME/.local/share/Lumen/lumen"
 
 	if ! pgrep -f "$lumen_bin" >/dev/null 2>&1; then
@@ -1493,6 +1525,7 @@ uninstall_lumen() {
 	fi
 	# CEF remote-debugging flag we created for Lumen (harmless, but tidy up).
 	rm -f "$HOME/.steam/steam/.cef-enable-remote-debugging" \
+	      "$HOME/.local/share/Steam/.cef-enable-remote-debugging" \
 	      "$HOME/.steam/debian-installation/.cef-enable-remote-debugging" 2>/dev/null || true
 	log_success "$(L "Lumen removed" "Lumen removido")"
 }
@@ -1676,6 +1709,38 @@ cleanup_old_port_leftovers() {
 	fi
 }
 
+remove_droiddeck_hook() {
+	is_droiddeck || return 0
+
+	log_step "$(L "Removing DroidDeck supervisor hook" \
+	             "Removendo hook do supervisor DroidDeck")"
+
+	if [ -x "$HOME/.local/share/Lumen/droiddeck-luatools-hook.sh" ]; then
+		"$HOME/.local/share/Lumen/droiddeck-luatools-hook.sh" stop >/dev/null 2>&1 || true
+	fi
+	pkill -f 'droiddeck-luatools-hook' >/dev/null 2>&1 || true
+
+	rm -f "$HOME/.local/share/Lumen/droiddeck-luatools-hook.sh" 2>/dev/null || true
+	rm -rf "${XDG_RUNTIME_DIR:-/tmp}/droiddeck-luatools" 2>/dev/null || true
+
+	if [ -f "/usr/local/bin/droiddeck-luatools-hook" ]; then
+		local sudo_cmd; sudo_cmd="$(sudo_prefix)"
+		if [ -w "/usr/local/bin" ] || [ "$(id -u)" -eq 0 ]; then
+			rm -f "/usr/local/bin/droiddeck-luatools-hook" 2>/dev/null || true
+		elif [ -n "$sudo_cmd" ]; then
+			$sudo_cmd rm -f "/usr/local/bin/droiddeck-luatools-hook" 2>/dev/null || true
+		fi
+	fi
+
+	local autostart="${XDG_CONFIG_HOME:-$HOME/.config}/labwc/autostart"
+	if [ -f "$autostart" ] && grep -q "droiddeck-luatools-hook" "$autostart" 2>/dev/null; then
+		sed -i '/droiddeck-luatools-hook/d' "$autostart" 2>/dev/null || true
+	fi
+
+	log_success "$(L "DroidDeck supervisor hook removed" \
+	                 "Hook do supervisor DroidDeck removido")"
+}
+
 # ============================================================================
 # Entry point
 # ============================================================================
@@ -1713,6 +1778,9 @@ main() {
 
 	print_section "$(L "Removing Game Mode launcher hook" "Removendo hook do Game Mode")"
 	remove_gamemode_hook
+
+	print_section "$(L "Removing DroidDeck supervisor hook" "Removendo hook do supervisor DroidDeck")"
+	remove_droiddeck_hook
 
 	print_section "$(L "Cleaning up leftover files" "Limpando arquivos residuais")"
 	cleanup_old_port_leftovers

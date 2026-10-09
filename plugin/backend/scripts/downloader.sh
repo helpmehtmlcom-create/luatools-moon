@@ -292,15 +292,47 @@ if [ -n "$EXTRACT_DIR" ]; then
   # Prefer the bundled static 7zz: it extracts BOTH .zip and .rar (online
   # fixes ship as .rar, which unzip can't handle). Fall back to system unzip
   # only when 7zz is absent (zip-only).
+  # On ARM64 (aarch64 / Poco F9 Ultra / DroidDeck), prefer native system 7zz/7z,
+  # or run bundled x86_64 7zz through droiddeck-fex / fex-emu if available.
   SEVENZ="$SCRIPT_DIR/../bin/7zz"
+  SEVENZ_PREFIX=()
+  if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
+    if command -v 7zz >/dev/null 2>&1; then
+      SEVENZ="$(command -v 7zz)"
+    elif command -v 7z >/dev/null 2>&1; then
+      SEVENZ="$(command -v 7z)"
+    elif [ -x "$SEVENZ" ]; then
+      if [ -x /usr/local/bin/droiddeck-fex ]; then
+        SEVENZ_PREFIX=(/usr/local/bin/droiddeck-fex run --mode on --)
+      elif command -v fex-emu >/dev/null 2>&1; then
+        SEVENZ_PREFIX=(fex-emu)
+      fi
+    fi
+  fi
+
+  run_sevenz() {
+    if [ ${#SEVENZ_PREFIX[@]} -gt 0 ]; then
+      "${SEVENZ_PREFIX[@]}" "$SEVENZ" "$@"
+    else
+      "$SEVENZ" "$@"
+    fi
+  }
+
+  sevenz_available() {
+    if [ -x "$SEVENZ" ] || [ ${#SEVENZ_PREFIX[@]} -gt 0 ]; then
+      return 0
+    fi
+    return 1
+  }
+
   MAX_ARCHIVE_ENTRIES="${MAX_ARCHIVE_ENTRIES:-20000}"
   MAX_EXPANDED_BYTES="${MAX_EXPANDED_BYTES:-4294967296}"
   EXTRACT_WORK="$EXTRACT_DIR"
 
   archive_is_safe() {
     local archive="$1" paths count expanded listing
-    if [ -x "$SEVENZ" ]; then
-      listing="$("$SEVENZ" l -slt "$archive" 2>/dev/null)" || return 1
+    if sevenz_available; then
+      listing="$(run_sevenz l -slt "$archive" 2>/dev/null)" || return 1
       paths="$(printf '%s\n' "$listing" | sed -n 's/^Path = //p' | tail -n +2)"
       count="$(printf '%s\n' "$paths" | sed '/^$/d' | wc -l)"
       expanded="$(printf '%s\n' "$listing" | awk -F' = ' '/^Size = [0-9]+$/ {s += $2} END {printf "%.0f", s}')"
@@ -331,8 +363,8 @@ if [ -n "$EXTRACT_DIR" ]; then
   else
     mkdir -p "$EXTRACT_WORK"
   fi
-  if [ -x "$SEVENZ" ]; then
-    "$SEVENZ" x -bd -y -o"$EXTRACT_WORK" "$DEST_PATH" >/dev/null 2>&1
+  if sevenz_available; then
+    run_sevenz x -bd -y -o"$EXTRACT_WORK" "$DEST_PATH" >/dev/null 2>&1
   else
     unzip -o -q "$DEST_PATH" -d "$EXTRACT_WORK"
   fi
@@ -355,7 +387,7 @@ if [ -n "$EXTRACT_DIR" ]; then
   # the same dir, then delete the residual archives so they don't litter the
   # game folder. Requires 7zz (handles .rar v5 + multi-volume from the first
   # volume). Best-effort: a nested failure still leaves any loose crack files.
-  if [ "${EXTRACT_NESTED:-0}" = "1" ] && [ -x "$SEVENZ" ]; then
+  if [ "${EXTRACT_NESTED:-0}" = "1" ] && sevenz_available; then
     # Record the DLLs the fix/crack archive shipped into a manifest in the game
     # folder (.slssteam_fix_dlls). This is the ONLY moment we can tell a crack's
     # DLLs (arbitrary names -- voices38, an emulator's steam_api64, ...) apart
@@ -368,7 +400,7 @@ if [ -n "$EXTRACT_DIR" ]; then
     DLL_ACC="$(mktemp 2>/dev/null)" || DLL_ACC=""
     list_fix_dlls() {  # $1 = archive -> append shipped .dll basenames to $DLL_ACC
       [ -n "$DLL_ACC" ] || return 0
-      "$SEVENZ" l -ba -slt "$1" 2>/dev/null \
+      run_sevenz l -ba -slt "$1" 2>/dev/null \
         | sed -n 's/^Path = //p' \
         | grep -iE '\.dll$' \
         | sed 's#.*[/\\]##' >> "$DLL_ACC"
@@ -386,7 +418,7 @@ if [ -n "$EXTRACT_DIR" ]; then
     LAUNCHER_ACC="$(mktemp 2>/dev/null)" || LAUNCHER_ACC=""
     list_fix_launchers() {  # $1 = archive -> append launcher exe relpaths to $LAUNCHER_ACC
       [ -n "$LAUNCHER_ACC" ] || return 0
-      "$SEVENZ" l -ba -slt "$1" 2>/dev/null \
+      run_sevenz l -ba -slt "$1" 2>/dev/null \
         | sed -n 's/^Path = //p' \
         | tr '\\' '/' \
         | grep -iE '(^|/)(launcher\.exe|launcher_[^/]+\.exe|[^/]+_launcher\.exe)$' \
@@ -419,7 +451,7 @@ if [ -n "$EXTRACT_DIR" ]; then
         list_fix_dlls "$arc"   # capture nested-archive DLLs BEFORE deletion
         list_fix_launchers "$arc"  # capture nested-archive launcher exes too
         if ! archive_is_safe "$arc" \
-            || ! "$SEVENZ" x -bd -y -o"$EXTRACT_WORK" "$arc" >/dev/null 2>&1; then
+            || ! run_sevenz x -bd -y -o"$EXTRACT_WORK" "$arc" >/dev/null 2>&1; then
           slog "nested archive rejected or unreadable: $(basename "$arc")"
         fi
       fi

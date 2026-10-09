@@ -8,8 +8,9 @@ Set up slsteam-moon, Lumen and the LuaTools plugin automatically with a single c
 curl -fsSL https://raw.githubusercontent.com/swwayps/luatools-moon/main/install.sh | bash
 ```
 
-> **Requirements:** Linux x86_64 and **native Steam** installed from your package
-> manager. Flatpak and Snap Steam are not supported.
+> **Requirements:** Linux x86_64 or **DroidDeck on ARM64** (e.g. Poco F9 Ultra) and **native Steam** installed. Flatpak and Snap Steam are not supported.
+>
+> **Running on DroidDeck (Android / ARM64)?** See the complete [DroidDeck Guide](DROIDDECK_GUIDE.md).
 >
 > **Want Steam theme support?** Use the [`millennium` branch](https://github.com/swwayps/luatools-moon/tree/millennium).
 
