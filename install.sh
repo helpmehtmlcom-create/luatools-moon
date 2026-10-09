@@ -2232,6 +2232,28 @@ deploy_droiddeck_lumen_aux() {
 			-o "$dest/lua/cefport.lua" 2>/dev/null || true
 	fi
 
+	# 5. Newer x86_64 glibc: DroidDeck's FEX runtime is glibc 2.31 but
+	#    lumen.bin needs >= 2.34. lumen-runner.sh starts it through this ld.so.
+	if [ -n "$script_dir" ] && [ -f "$script_dir/lumen-aux/fetch-glibc.py" ]; then
+		cp -f "$script_dir/lumen-aux/fetch-glibc.py" "$dest/fetch-glibc.py"
+	else
+		curl -fsSL --connect-timeout 10 --max-time 30 \
+			"https://raw.githubusercontent.com/${PLUGIN_RAW_REPO}/${PLUGIN_RAW_BRANCH}/lumen-aux/fetch-glibc.py" \
+			-o "$dest/fetch-glibc.py" 2>/dev/null || true
+	fi
+	if [ ! -f "$dest/glibc/lib/ld-linux-x86-64.so.2" ]; then
+		if command -v python3 >/dev/null 2>&1 && [ -s "$dest/fetch-glibc.py" ]; then
+			log_info "$(L "Fetching a newer glibc for Lumen (verified download)" \
+			             "Baixando uma glibc mais nova para o Lumen (download verificado)")"
+			python3 "$dest/fetch-glibc.py" "$dest/glibc" \
+				|| log_warn "$(L "Could not fetch the newer glibc; Lumen may fail with GLIBC_2.34 not found." \
+				                 "Não foi possível baixar a glibc nova; o Lumen pode falhar com GLIBC_2.34 not found.")"
+		else
+			log_warn "$(L "python3 missing: cannot fetch the newer glibc Lumen needs." \
+			             "python3 ausente: não dá para baixar a glibc nova que o Lumen precisa.")"
+		fi
+	fi
+
 	log_success "$(L "Deployed DroidDeck Lumen runner and network adaptations" \
 	                 "Implantado o executor Lumen e adaptações de rede para DroidDeck")"
 }
@@ -2694,6 +2716,16 @@ install_droiddeck_hook() {
 			log_info "$(L "Registered autostart in ~/.config/labwc/autostart" \
 			             "Autostart registrado em ~/.config/labwc/autostart")"
 		fi
+	fi
+
+	# DroidDeck re-copies /etc/xdg/labwc/autostart over ~/.config/labwc/autostart
+	# at every session start, which erases the line above. The system copy is
+	# the source of that refresh, so register the supervisor there too.
+	local sys_autostart="/etc/xdg/labwc/autostart"
+	if [ -w "$sys_autostart" ] && ! grep -q "droiddeck-luatools-hook" "$sys_autostart" 2>/dev/null; then
+		printf '\n# LuaTools / Lumen supervisor for DroidDeck\n"$HOME/.local/share/Lumen/droiddeck-luatools-hook.sh" start &\n' >> "$sys_autostart" \
+			&& log_info "$(L "Registered autostart in $sys_autostart" \
+			             "Autostart registrado em $sys_autostart")"
 	fi
 
 	# Ensure Steam CEF remote debugging flag exists

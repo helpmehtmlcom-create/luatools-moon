@@ -111,6 +111,7 @@ supervisor_loop() {
     log "Supervisor started (PID: $$). Monitoring Steam sessions..."
 
     local steam_was_running=0
+    local backoff=3 next_restart=0 now
     while :; do
         if is_steam_running; then
             if [ "$steam_was_running" -eq 0 ]; then
@@ -121,8 +122,17 @@ supervisor_loop() {
                 start_lumen_instance
             else
                 if ! is_lumen_running; then
-                    log "Lumen exited while Steam is still running. Restarting..."
-                    start_lumen_instance
+                    # A crash loop (bad glibc, missing FEX) must not hammer the
+                    # log every 3s: back off 3s -> 6s -> ... -> 60s.
+                    now=$(date +%s)
+                    if [ "$now" -ge "$next_restart" ]; then
+                        log "Lumen exited while Steam is still running. Restarting in-place (backoff ${backoff}s)..."
+                        start_lumen_instance
+                        next_restart=$(( $(date +%s) + backoff ))
+                        backoff=$(( backoff * 2 > 60 ? 60 : backoff * 2 ))
+                    fi
+                else
+                    backoff=3
                 fi
             fi
         else
