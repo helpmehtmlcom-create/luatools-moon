@@ -308,10 +308,23 @@ get_distro_family() {
 		elif [[ "${ID:-}" =~ opensuse ]] || [[ "${ID_LIKE:-}" =~ opensuse ]]; then
 			echo "opensuse"
 		else
-			echo "unknown"
+			pm_family_from_commands
 		fi
 	else
-		echo "unknown"
+		pm_family_from_commands
+	fi
+}
+
+# Last resort for minimal/containerised userlands (DroidDeck, PRoot) whose
+# os-release is missing or unrecognised: infer the family from the package
+# manager binary actually installed.
+pm_family_from_commands() {
+	if   command -v apt-get >/dev/null 2>&1; then echo "debian"
+	elif command -v dnf     >/dev/null 2>&1; then echo "fedora"
+	elif command -v pacman  >/dev/null 2>&1; then echo "arch"
+	elif command -v zypper  >/dev/null 2>&1; then echo "opensuse"
+	elif command -v apk     >/dev/null 2>&1; then echo "alpine"
+	else echo "unknown"
 	fi
 }
 
@@ -1108,6 +1121,9 @@ pm_install() {
 		opensuse)
 			$sudo_cmd zypper install -y "$@"
 			;;
+		alpine)
+			$sudo_cmd apk add --no-cache "$@"
+			;;
 		*)
 			return 1
 			;;
@@ -1168,6 +1184,11 @@ detect_missing_tools() {
 				break
 			fi
 		done < <(printf '%s\n' "$dependency_path" | tr ':' '\n')
+		# python3's zipfile covers unzip (extract_zip and archive_entries_safe
+		# both fall back to it), so a python3-only userland is still usable.
+		if [ "$found" -eq 0 ] && [ "$tool" = "unzip" ] && command -v python3 >/dev/null 2>&1; then
+			found=1
+		fi
 		if [ "$found" -eq 0 ]; then
 			DEP_MISSING_TOOLS+=("$tool")
 			DEP_MISSING_PKGS+=("$(pkg_for "$tool" "$family")")
