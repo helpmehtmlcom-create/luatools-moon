@@ -126,7 +126,7 @@ case "${1:-run}" in
         ;;
     stop)
         if [ -f "$SUPERVISOR_PID_FILE" ]; then
-            local spid; spid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null)"
+            spid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null)"
             if [ -n "$spid" ] && kill -0 "$spid" 2>/dev/null; then
                 kill "$spid" 2>/dev/null || true
             fi
