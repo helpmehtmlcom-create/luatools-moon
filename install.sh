@@ -2741,6 +2741,40 @@ DESKTOP
 	log_info "$(L "Added a 'Start LuaTools' launcher (desktop + app menu); tap it once per DroidDeck session." \
 	             "Atalho 'Start LuaTools' adicionado (desktop + menu); toque uma vez por sessão do DroidDeck.")"
 
+	# Fully automatic start: python3 imports usercustomize from the user site at
+	# the start of every process, and DroidDeck's session daemons are python3
+	# programs, so a small usercustomize.py in $HOME brings the supervisor up with
+	# each session. (The launcher above stays as a manual fallback.)
+	if command -v python3 >/dev/null 2>&1; then
+		local usersite uc_src uc_dest
+		usersite="$(python3 -c 'import site; print(site.getusersitepackages())' 2>/dev/null)"
+		uc_dest="$usersite/usercustomize.py"
+		if [ -n "$usersite" ]; then
+			mkdir -p "$usersite" 2>/dev/null || true
+			if [ -f "$uc_dest" ] && ! grep -q "luatools-moon: DroidDeck session autostart" "$uc_dest" 2>/dev/null; then
+				log_warn "$(L "A different usercustomize.py already exists at $uc_dest; autostart not installed." \
+				             "Já existe outro usercustomize.py em $uc_dest; autostart não instalado.")"
+			else
+				uc_src="$(mktemp)"
+				if [ -n "$script_dir" ] && [ -f "$script_dir/lumen-aux/usercustomize.py" ]; then
+					cp -f "$script_dir/lumen-aux/usercustomize.py" "$uc_src"
+				else
+					curl -fsSL --connect-timeout 10 --max-time 30 \
+						"https://raw.githubusercontent.com/${PLUGIN_RAW_REPO}/${PLUGIN_RAW_BRANCH}/lumen-aux/usercustomize.py" \
+						-o "$uc_src" 2>/dev/null || true
+				fi
+				if [ -s "$uc_src" ] && cp -f "$uc_src" "$uc_dest"; then
+					log_success "$(L "LuaTools will now start automatically with each DroidDeck session" \
+					                 "O LuaTools agora inicia automaticamente a cada sessão do DroidDeck")"
+				else
+					log_warn "$(L "Could not install the autostart hook; use the Start LuaTools launcher." \
+					             "Não foi possível instalar o hook de autostart; use o atalho Start LuaTools.")"
+				fi
+				rm -f "$uc_src"
+			fi
+		fi
+	fi
+
 	# Ensure Steam CEF remote debugging flag exists
 	mkdir -p "$HOME/.local/share/Steam" "$HOME/.steam/steam" 2>/dev/null || true
 	touch "$HOME/.local/share/Steam/.cef-enable-remote-debugging" 2>/dev/null || true

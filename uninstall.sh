@@ -1740,6 +1740,14 @@ remove_droiddeck_hook() {
 	rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/luatools-start.desktop" \
 	      "$HOME/Desktop/Start LuaTools.desktop" 2>/dev/null || true
 
+	if command -v python3 >/dev/null 2>&1; then
+		local uc_file
+		uc_file="$(python3 -c 'import site; print(site.getusersitepackages())' 2>/dev/null)/usercustomize.py"
+		if [ -f "$uc_file" ] && grep -q "luatools-moon: DroidDeck session autostart" "$uc_file" 2>/dev/null; then
+			rm -f "$uc_file" 2>/dev/null || true
+		fi
+	fi
+
 	log_success "$(L "DroidDeck supervisor hook removed" \
 	                 "Hook do supervisor DroidDeck removido")"
 }
