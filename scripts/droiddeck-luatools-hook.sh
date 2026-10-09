@@ -35,6 +35,22 @@ is_lumen_running() {
     pgrep -f "$LUMEN_DIR/lumen" >/dev/null 2>&1
 }
 
+# DroidDeck launches Steam with "-devtools-port N" (N is not 8080 and changes
+# per session). Read it from the live Steam command line so Lumen talks to the
+# right CEF endpoint even when BL_CDP_PORT never reached this process.
+discover_cdp_port() {
+    local port="" pid cmd
+    for pid in $(pgrep -x steam 2>/dev/null); do
+        cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
+        port="$(printf '%s' "$cmd" | sed -n 's/.*-devtools-port[ =]\([0-9][0-9]*\).*/\1/p')"
+        [ -n "$port" ] && break
+    done
+    if [ -z "$port" ] && [ -n "${BL_LAUNCH_DIR:-}" ] && [ -r "$BL_LAUNCH_DIR/agent/cdp-port" ]; then
+        port="$(head -n1 "$BL_LAUNCH_DIR/agent/cdp-port" 2>/dev/null | tr -dc '0-9')"
+    fi
+    [ -n "$port" ] && printf '%s' "$port"
+}
+
 ensure_cef_debugging() {
     # Ensure CEF remote debugging sentinel exists for DroidDeck
     mkdir -p "$STEAM_ROOT" "$HOME/.steam/steam" 2>/dev/null || true
@@ -59,9 +75,19 @@ start_lumen_instance() {
     export LUMEN_BACKEND_DIR="$LUMEN_DIR/luatools/backend"
     export LUMEN_LUA_DIR="$LUMEN_DIR/lua"
 
+    local cdp_port; cdp_port="$(discover_cdp_port || true)"
+    if [ -n "$cdp_port" ]; then
+        export BL_CDP_PORT="$cdp_port"
+        printf '%s
+' "$cdp_port" > "$LUMEN_DIR/cef_port" 2>/dev/null || true
+        log "Steam CEF debugging port: $cdp_port"
+    else
+        log "Warning: could not find Steam CEF port; Lumen will use its default (8080)"
+    fi
+
     log "Starting Lumen sidecar for Steam in DroidDeck..."
     (
-        env -u LD_AUDIT -u LD_PRELOAD -u LD_LIBRARY_PATH \
+        env -u LD_AUDIT -u LD_PRELOAD -u LD_LIBRARY_PATH             ${cdp_port:+BL_CDP_PORT="$cdp_port"} \
             LUMEN_DIR="$LUMEN_DIR" \
             LUMEN_BACKEND_DIR="$LUMEN_DIR/luatools/backend" \
             LUMEN_LUA_DIR="$LUMEN_DIR/lua" \
@@ -117,7 +143,7 @@ case "${1:-run}" in
             exit 0
         fi
         log "Starting background supervisor..."
-        ( "$0" run >> "${HOME:-/root}/.lumen.log" 2>&1 ) &
+        ( setsid nohup "$0" run >> "${HOME:-/root}/.lumen.log" 2>&1 < /dev/null & )
         log "Supervisor started in background."
         ;;
     run)
