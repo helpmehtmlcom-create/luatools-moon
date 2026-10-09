@@ -162,7 +162,13 @@ local function inode_key(inodes)
 end
 
 -- Direct loopback probe for environments where /proc/net/tcp is inaccessible
--- (e.g. Android PRoot on Poco F9 Ultra / DroidDeck).
+-- (e.g. Android PRoot on Poco F9 Ultra / DroidDeck). Succeeds only when the
+-- endpoint answers /json/version with Valve's own user agent.
+--
+-- A Chromium DevTools server keeps the connection open after replying, so a
+-- read-to-EOF never completes: read in chunks, keep whatever arrived (luasocket
+-- hands back the partial data alongside "timeout"), and stop as soon as the
+-- reply is complete.
 function peerauth.probe_steam_cdp(port)
   if type(port) ~= "number" or port < 1024 or port > 65535 then return false end
   local ok, socket = pcall(require, "socket")
@@ -171,21 +177,23 @@ function peerauth.probe_steam_cdp(port)
   end
   local sock = socket.tcp()
   if not sock then return false end
-  sock:settimeout(0.8)
+  sock:settimeout(3)
   local conn_ok = sock:connect("127.0.0.1", port)
   if not conn_ok then
     pcall(function() sock:close() end)
     return false
   end
-  sock:send("GET /json/version HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-  local resp = sock:receive("*a") or ""
-  pcall(function() sock:close() end)
-  if resp:find("Steam", 1, true)
-     or resp:find("webSocketDebuggerUrl", 1, true)
-     or resp:find("SharedJSContext", 1, true) then
-    return true
+  sock:send("GET /json/version HTTP/1.1\r\nHost: 127.0.0.1:" .. tostring(port)
+    .. "\r\nConnection: close\r\n\r\n")
+  local resp = ""
+  while #resp < 16384 do
+    local chunk, err, partial = sock:receive(1024)
+    local got = chunk or partial
+    if got and #got > 0 then resp = resp .. got end
+    if resp:find("webSocketDebuggerUrl", 1, true) or err then break end
   end
-  return false
+  pcall(function() sock:close() end)
+  return resp:find("Valve Steam Client", 1, true) ~= nil
 end
 
 local function verify_inodes(inodes, deps, port)
