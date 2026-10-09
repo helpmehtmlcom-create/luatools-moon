@@ -923,6 +923,70 @@ local function publish_preview(appid, preview, lua_text, supplied_opts)
         publications[#publications + 1] = { path = store_dir .. "/.preferred_" .. depot, content = preferred[depot] .. "\n" }
     end
     publications[#publications + 1] = { path = target, content = lua_text }
+    if home ~= "" then
+        local alt_targets = {
+            home .. "/.local/share/Steam/config/stplug-in/" .. tostring(appid) .. ".lua",
+            home .. "/.steam/steam/config/stplug-in/" .. tostring(appid) .. ".lua",
+            home .. "/.local/share/SLSsteam/stplug-in/" .. tostring(appid) .. ".lua",
+        }
+        local seen_targets = { [target] = true }
+        for _, alt_target in ipairs(alt_targets) do
+            if not seen_targets[alt_target] and opts.exists(parent_path(alt_target)) then
+                seen_targets[alt_target] = true
+                publications[#publications + 1] = { path = alt_target, content = lua_text }
+            end
+        end
+    end
+    if opts.write_appmanifest then
+        local appinfo = tostring(opts.appinfo_text or "")
+        local game_name = appinfo:match('"name"%s+"([^"]+)"')
+        if not game_name or game_name == "" then
+            game_name = "App " .. tostring(appid)
+        end
+        local installdir = appinfo:match('"installdir"%s+"([^"]+)"')
+        if not installdir or installdir == "" then
+            installdir = tostring(appid)
+        end
+        local now = tostring(os.time())
+        local acf_content = string.format([["AppState"
+{
+	"appid"		"%s"
+	"Universe"		"1"
+	"name"		"%s"
+	"StateFlags"		"4"
+	"installdir"		"%s"
+	"LastUpdated"		"%s"
+	"UpdateResult"		"0"
+	"BytesToDownload"		"0"
+	"BytesDownloaded"		"0"
+	"AutoUpdateBehavior"		"0"
+	"AllowOtherDownloadsWhileRunning"		"0"
+	"ScheduledAutoUpdate"		"0"
+	"InstalledDepots"
+	{
+	}
+}
+]], tostring(appid), game_name:gsub('"', '\\"'), installdir:gsub('"', '\\"'), now)
+
+        local manifest_path = steam_root .. "/steamapps/appmanifest_" .. tostring(appid) .. ".acf"
+        if not opts.exists(manifest_path) then
+            opts.mkdir(parent_path(manifest_path))
+            publications[#publications + 1] = { path = manifest_path, content = acf_content }
+        end
+        if home ~= "" then
+            local alt_manifests = {
+                home .. "/.local/share/Steam/steamapps/appmanifest_" .. tostring(appid) .. ".acf",
+                home .. "/.steam/steam/steamapps/appmanifest_" .. tostring(appid) .. ".acf",
+            }
+            local seen_manifests = { [manifest_path] = true }
+            for _, alt_manifest in ipairs(alt_manifests) do
+                if not seen_manifests[alt_manifest] and not opts.exists(alt_manifest) and opts.exists(parent_path(alt_manifest)) then
+                    seen_manifests[alt_manifest] = true
+                    publications[#publications + 1] = { path = alt_manifest, content = acf_content }
+                end
+            end
+        end
+    end
     if opts.sync_pins then
         local config_path = opts.config_path or (home .. "/.config/SLSsteam/config.yaml")
         local imports_path = opts.imports_path or (home .. "/.config/SLSsteam/lumen_lua_imports.txt")

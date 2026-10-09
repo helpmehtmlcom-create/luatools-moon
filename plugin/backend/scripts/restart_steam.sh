@@ -49,7 +49,11 @@ if command -v systemctl >/dev/null 2>&1; then
   # preserved) while the compositor stays up. Checked BEFORE the gamescope glob.
   if systemctl --user is-active --quiet steam-launcher.service 2>/dev/null; then
     if [ -n "${SLS_RESTART_DRYRUN:-}" ]; then echo "unit:steam-launcher.service"; exit 0; fi
-    setsid nohup systemctl --user restart steam-launcher.service </dev/null >/dev/null 2>&1 &
+    if command -v setsid >/dev/null 2>&1; then
+      setsid nohup systemctl --user restart steam-launcher.service </dev/null >/dev/null 2>&1 &
+    else
+      nohup systemctl --user restart steam-launcher.service </dev/null >/dev/null 2>&1 &
+    fi
     exit 0
   fi
 
@@ -64,7 +68,11 @@ if command -v systemctl >/dev/null 2>&1; then
   )"
   if [ -n "${gs_unit:-}" ]; then
     if [ -n "${SLS_RESTART_DRYRUN:-}" ]; then echo "unit:$gs_unit"; exit 0; fi
-    setsid nohup systemctl --user restart "$gs_unit" </dev/null >/dev/null 2>&1 &
+    if command -v setsid >/dev/null 2>&1; then
+      setsid nohup systemctl --user restart "$gs_unit" </dev/null >/dev/null 2>&1 &
+    else
+      nohup systemctl --user restart "$gs_unit" </dev/null >/dev/null 2>&1 &
+    fi
     exit 0
   fi
 fi
@@ -81,7 +89,7 @@ for candidate in \
   "/usr/bin/steam" \
   "/usr/games/steam" \
   "/usr/local/bin/steam"; do
-  if [ -x "$candidate" ]; then
+  if [ -x "$candidate" ] || { [ -n "${SLS_RESTART_DRYRUN:-}" ] && [ -f "$candidate" ]; }; then
     LAUNCHER="$candidate"
     break
   fi
@@ -202,7 +210,13 @@ fi
 sleep 0.3
 
 if [ -n "$LAUNCHER" ]; then
-  setsid nohup "$LAUNCHER" </dev/null >/dev/null 2>&1 &
+  if command -v setsid >/dev/null 2>&1; then
+    setsid nohup "$LAUNCHER" </dev/null >/dev/null 2>&1 &
+  elif command -v nohup >/dev/null 2>&1; then
+    nohup "$LAUNCHER" </dev/null >/dev/null 2>&1 &
+  else
+    "$LAUNCHER" </dev/null >/dev/null 2>&1 &
+  fi
 fi
 restart_trace "relaunch issued $(since_ms "$restart_begin")ms after the request"
 exit 0

@@ -1209,17 +1209,72 @@
 
   // duplicated from main code thing for reliability
   function isBigPictureMode() {
-    if (typeof window.__LUATOOLS_IS_BIG_PICTURE__ !== "undefined") {
-      return window.__LUATOOLS_IS_BIG_PICTURE__;
+    try {
+      if (
+        typeof window !== "undefined" &&
+        window.SteamClient &&
+        window.SteamClient.UI &&
+        typeof window.SteamClient.UI.IsGamepadUI === "function" &&
+        window.SteamClient.UI.IsGamepadUI()
+      ) {
+        return true;
+      }
+    } catch (_) {}
+
+    const docEl = typeof document !== "undefined" && document.documentElement;
+    const body = typeof document !== "undefined" && document.body;
+    const htmlClasses =
+      ((docEl && docEl.className) || "") + " " + ((body && body.className) || "");
+    const userAgent = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+    const href =
+      (typeof window !== "undefined" &&
+        window.location &&
+        window.location.href) ||
+      "";
+
+    if (
+      href.includes("/gamepad/") ||
+      href.includes("gamepad=1") ||
+      href.includes("tenfoot=1") ||
+      href.includes("gamemode=1")
+    ) {
+      return true;
     }
-    const htmlClasses = document.documentElement.className;
-    const userAgent = navigator.userAgent;
+
+    const hasGamepadClass =
+      htmlClasses.includes("GamepadUI") ||
+      htmlClasses.includes("gamepadui") ||
+      htmlClasses.includes("BasicUI") ||
+      htmlClasses.includes("tenfoot") ||
+      htmlClasses.includes("Tenfoot") ||
+      htmlClasses.includes("SteamDeck");
+    const hasDesktopClass = htmlClasses.includes("DesktopUI");
+    const hasTouchClass = htmlClasses.includes("touch");
+
+    const isGamepadUA = userAgent.includes("Valve Steam Gamepad");
+    const isClientUA = userAgent.includes("Valve Steam Client");
+
+    if (hasGamepadClass || isGamepadUA) {
+      return true;
+    }
+
+    try {
+      if (
+        typeof document !== "undefined" &&
+        typeof document.querySelector === "function" &&
+        document.querySelector(
+          ".GamepadUI, .gamepadui, [class*='gamepadui_'], [class*='GamepadUI'], #FeatureTarget_interest-buttons",
+        )
+      ) {
+        return true;
+      }
+    } catch (_) {}
+
     let score = 0;
-    if (htmlClasses.includes("BasicUI")) score += 3;
-    if (htmlClasses.includes("DesktopUI")) score -= 3;
-    if (userAgent.includes("Valve Steam Gamepad")) score += 2;
-    if (userAgent.includes("Valve Steam Client")) score -= 2;
-    if (htmlClasses.includes("touch")) score += 1;
+    if (hasTouchClass) score += 1;
+    if (hasDesktopClass) score -= 3;
+    if (isClientUA && !isGamepadUA) score -= 2;
+
     return score > 0;
   }
 
@@ -1657,44 +1712,91 @@
 
   // Big Picture Mode Detector - Multi-method system for maximum reliability
   function isBigPictureMode() {
-    const htmlClasses = document.documentElement.className;
-    const userAgent = navigator.userAgent;
+    try {
+      if (
+        typeof window !== "undefined" &&
+        window.SteamClient &&
+        window.SteamClient.UI &&
+        typeof window.SteamClient.UI.IsGamepadUI === "function" &&
+        window.SteamClient.UI.IsGamepadUI()
+      ) {
+        return true;
+      }
+    } catch (_) {}
 
-    // METHOD 1: HTML Classes
-    // Big Picture: 'BasicUI' + 'touch'
-    // Normal Mode: 'DesktopUI' (without 'touch')
-    const hasBigPictureClass = htmlClasses.includes("BasicUI");
+    const docEl = typeof document !== "undefined" && document.documentElement;
+    const body = typeof document !== "undefined" && document.body;
+    const htmlClasses =
+      ((docEl && docEl.className) || "") + " " + ((body && body.className) || "");
+    const userAgent = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+    const href =
+      (typeof window !== "undefined" &&
+        window.location &&
+        window.location.href) ||
+      "";
+
+    // METHOD 1: URL / query parameters
+    if (
+      href.includes("/gamepad/") ||
+      href.includes("gamepad=1") ||
+      href.includes("tenfoot=1") ||
+      href.includes("gamemode=1")
+    ) {
+      return true;
+    }
+
+    // METHOD 2: HTML / Body Classes
+    const hasGamepadClass =
+      htmlClasses.includes("GamepadUI") ||
+      htmlClasses.includes("gamepadui") ||
+      htmlClasses.includes("BasicUI") ||
+      htmlClasses.includes("tenfoot") ||
+      htmlClasses.includes("Tenfoot") ||
+      htmlClasses.includes("SteamDeck");
     const hasDesktopClass = htmlClasses.includes("DesktopUI");
     const hasTouchClass = htmlClasses.includes("touch");
 
-    // METHOD 2: User Agent
-    // Big Picture: 'Valve Steam Gamepad'
-    // Normal Mode: 'Valve Steam Client'
+    // METHOD 3: User Agent
     const isGamepadUA = userAgent.includes("Valve Steam Gamepad");
     const isClientUA = userAgent.includes("Valve Steam Client");
 
-    // Scoring system: each indicator adds points
+    if (hasGamepadClass || isGamepadUA) {
+      return true;
+    }
+
+    // METHOD 4: DOM Selectors for GamepadUI elements
+    try {
+      if (
+        typeof document !== "undefined" &&
+        typeof document.querySelector === "function" &&
+        document.querySelector(
+          ".GamepadUI, .gamepadui, [class*='gamepadui_'], [class*='GamepadUI'], #FeatureTarget_interest-buttons",
+        )
+      ) {
+        return true;
+      }
+    } catch (_) {}
+
     let bigPictureScore = 0;
-
-    // BasicUI/DesktopUI class (weight: 3 points - highly reliable)
-    if (hasBigPictureClass) bigPictureScore += 3;
-    if (hasDesktopClass) bigPictureScore -= 3;
-
-    // User Agent (weight: 2 points - reliable)
-    if (isGamepadUA) bigPictureScore += 2;
-    if (isClientUA) bigPictureScore -= 2;
-
-    // Touch class (weight: 1 point - additional indicator)
     if (hasTouchClass) bigPictureScore += 1;
+    if (hasDesktopClass) bigPictureScore -= 3;
+    if (isClientUA && !isGamepadUA) bigPictureScore -= 2;
 
-    // Positive score = Big Picture, negative/zero = Normal
-    const isBigPicture = bigPictureScore > 0;
-
-    return isBigPicture;
+    return bigPictureScore > 0;
   }
 
-  // Detect and save mode at startup
-  window.__LUATOOLS_IS_BIG_PICTURE__ = isBigPictureMode();
+  // Detect and save mode at startup, with dynamic evaluation fallback
+  try {
+    Object.defineProperty(window, "__LUATOOLS_IS_BIG_PICTURE__", {
+      get: function () {
+        return isBigPictureMode();
+      },
+      configurable: true,
+      enumerable: true,
+    });
+  } catch (_) {
+    window.__LUATOOLS_IS_BIG_PICTURE__ = isBigPictureMode();
+  }
 
   // Forward logs to Millennium backend so they appear in the dev console
   function backendLog(message) {
@@ -8182,7 +8284,16 @@
   // with a React feature target. Resolve the new layout structurally so hashed
   // CSS-module class names can change without hiding the controls again.
   function findBigPictureInterestLayout(root) {
-    root = root || document.getElementById("FeatureTarget_interest-buttons");
+    if (!root && typeof document !== "undefined") {
+      root = document.getElementById("FeatureTarget_interest-buttons");
+      if (!root && typeof document.querySelector === "function") {
+        try {
+          root = document.querySelector(
+            "[data-feature-target='interest-buttons'], [class*='InterestButtons'], [class*='interest_buttons'], .gamepadui_interest_buttons",
+          );
+        } catch (_) {}
+      }
+    }
     if (!root) return null;
 
     const nativeButtons = Array.from(root.querySelectorAll("button")).filter(
@@ -8193,12 +8304,16 @@
         );
       },
     );
-    if (nativeButtons.length < 3) return null;
+    if (nativeButtons.length < 1) return null;
 
+    const sampleButtons = nativeButtons.slice(
+      0,
+      Math.min(nativeButtons.length, 3),
+    );
     let column = nativeButtons[0].parentElement;
     while (
       column &&
-      !nativeButtons.slice(0, 3).every(function (button) {
+      !sampleButtons.every(function (button) {
         return column.contains(button);
       })
     ) {
@@ -8210,26 +8325,49 @@
       while (node && node.parentElement !== column) node = node.parentElement;
       return node && node.parentElement === column ? node : null;
     };
-    const wishlistRow = directChildWithin(nativeButtons[0]);
-    const followRow = directChildWithin(nativeButtons[1]);
-    if (!wishlistRow || !followRow || wishlistRow === followRow) return null;
+    const firstRow = directChildWithin(nativeButtons[0]);
+    if (!firstRow) return null;
 
-    let referenceCell = nativeButtons[1];
+    let secondRow = null;
+    let refButton = nativeButtons[0];
+
+    if (nativeButtons.length >= 2) {
+      for (let i = 1; i < nativeButtons.length; i++) {
+        const candidateRow = directChildWithin(nativeButtons[i]);
+        if (candidateRow && candidateRow !== firstRow) {
+          secondRow = candidateRow;
+          refButton = nativeButtons[i];
+          break;
+        }
+      }
+    }
+
+    const wishlistRow = firstRow;
+    const followRow = secondRow || firstRow;
+
+    let referenceCell = refButton;
     while (referenceCell && referenceCell.parentElement !== followRow) {
       referenceCell = referenceCell.parentElement;
     }
-    if (!referenceCell) return null;
+    if (!referenceCell) {
+      referenceCell = refButton.parentElement || refButton;
+    }
+
+    let referenceCells = Array.from(followRow.children).filter(function (cell) {
+      return !!cell.querySelector("button");
+    });
+    if (referenceCells.length === 0) {
+      referenceCells = [referenceCell];
+    }
 
     return {
       root: root,
       column: column,
       wishlistRow: wishlistRow,
       followRow: followRow,
-      referenceCells: Array.from(followRow.children).filter(function (cell) {
-        return !!cell.querySelector("button");
-      }),
+      referenceCells: referenceCells,
       referenceCell: referenceCell,
-      referenceButton: nativeButtons[1],
+      referenceButton: refButton,
     };
   }
 
@@ -9930,13 +10068,19 @@
                 if (button && button.parentElement) {
                   button.parentElement.removeChild(button);
                 }
-                // Hot reload: the recommended build is picked up live, so no
-                // Steam restart is needed — just acknowledge success.
-                ShowLuaToolsAlert(
+                showLuaToolsConfirm(
                   "LuaTools",
                   choice.autoApply === true
-                    ? lt("Recommended version added. The fix will be applied automatically after installation.")
-                    : lt("Recommended version added."),
+                    ? lt("Recommended version added. The fix will be applied automatically after installation. Restart Steam now?")
+                    : lt("Recommended version added. Restart Steam now?"),
+                  function () {
+                    try {
+                      Millennium.callServerMethod("luatools", "RestartSteam", {
+                        contentScriptQuery: "",
+                      });
+                    } catch (_) {}
+                  },
+                  function () {},
                 );
               }).catch(function (error) {
                 if (progressOverlay) progressOverlay.remove();
@@ -10702,19 +10846,42 @@
                 // Update Hide button to styled Close (UNFILLED, secondary).
                 // slsteammoon: the FILLED button is "Restart Steam" so the
                 // restart reads as the intended next step (a freshly added
-                // game only appears after a Steam restart on Linux).
+                // game only appears after a Steam restart on Linux / DroidDeck).
                 const hideBtn = overlay.querySelector(".luatools-hide-btn");
                 if (hideBtn) {
-                  // Hot reload: a freshly added game now appears without a Steam
-                  // restart, so the success modal only needs a Close button
-                  // (promoted to the filled primary since it's the sole action).
-                  hideBtn.className = "luatools-btn primary luatools-hide-btn";
+                  hideBtn.className = "luatools-btn luatools-hide-btn";
                   hideBtn.style.cssText =
                     "min-width:140px;display:flex;align-items:center;justify-content:center;text-align:center;";
                   hideBtn.innerHTML =
                     '<i class="fa-solid fa-xmark" style="margin-right:6px;"></i><span>' +
                     lt("Close") +
                     "</span>";
+                  if (
+                    hideBtn.parentElement &&
+                    !overlay.querySelector(".luatools-restart-added-btn")
+                  ) {
+                    const restartBtn = document.createElement("a");
+                    restartBtn.href = "#";
+                    restartBtn.className =
+                      "luatools-btn primary luatools-restart-added-btn";
+                    restartBtn.style.cssText =
+                      "min-width:140px;display:flex;align-items:center;justify-content:center;text-align:center;margin-right:8px;";
+                    restartBtn.innerHTML =
+                      '<i class="fa-solid fa-rotate-right" style="margin-right:6px;"></i><span>' +
+                      lt("Restart Steam") +
+                      "</span>";
+                    restartBtn.addEventListener("click", function (e) {
+                      e.preventDefault();
+                      try {
+                        restartBtn.style.pointerEvents = "none";
+                        restartBtn.style.opacity = "0.6";
+                        Millennium.callServerMethod("luatools", "RestartSteam", {
+                          contentScriptQuery: "",
+                        });
+                      } catch (_) {}
+                    });
+                    hideBtn.parentElement.insertBefore(restartBtn, hideBtn);
+                  }
                 }
               }
               done = true;

@@ -113,13 +113,27 @@ if command -v node >/dev/null 2>&1; then
 fi
 
 if [[ "$MAKE_ZIP" -eq 1 ]]; then
-  command -v zip >/dev/null 2>&1 || {
-    echo "[build] zip is required for --zip" >&2
-    exit 2
-  }
   BUNDLE="$(dirname "$OUT")/luatools-linux.zip"
   rm -f "$BUNDLE"
-  (cd "$OUT" && zip -qr "$BUNDLE" .)
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$OUT" && zip -qr "$BUNDLE" .)
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import os, sys, zipfile
+out_dir = sys.argv[1]
+bundle_path = sys.argv[2]
+with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as z:
+    for root, dirs, files in os.walk(out_dir):
+        dirs.sort()
+        for f in sorted(files):
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, out_dir).replace("\\", "/")
+            z.write(full_path, rel_path)
+' "$OUT" "$BUNDLE"
+  else
+    echo "[build] zip or python3 is required for --zip" >&2
+    exit 2
+  fi
   # Publish a sha256 sidecar next to the asset. The installer on the paired
   # luatools-moon branch fetches "<asset>.sha256" and refuses an asset that does
   # not match it, so a truncated or altered archive is caught before it is unpacked

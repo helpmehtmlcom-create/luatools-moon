@@ -112,20 +112,109 @@ if [[ -n "$COVERAGE_FILE" && -f "$COVERAGE_FILE" ]]; then
   done < "$COVERAGE_FILE"
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SEVENZ="$SCRIPT_DIR/../bin/7zz"
+SEVENZ_PREFIX=()
+case "$(uname -m)" in
+  aarch64|arm64)
+    for cand in "$SCRIPT_DIR/../bin/7zz.arm64" "$SCRIPT_DIR/../bin/7zz-arm64"; do
+      [ -x "$cand" ] && SEVENZ="$cand" && break
+    done
+    if [ "$SEVENZ" = "$SCRIPT_DIR/../bin/7zz" ]; then
+      for cand in 7zz 7zz-arm64 7z 7zzs; do
+        if command -v "$cand" >/dev/null 2>&1; then
+          SEVENZ="$(command -v "$cand")"
+          break
+        fi
+      done
+    fi
+    if [ "$SEVENZ" = "$SCRIPT_DIR/../bin/7zz" ] && [ -x "$SEVENZ" ]; then
+      if [ -x /usr/local/bin/droiddeck-fex ]; then
+        SEVENZ_PREFIX=(/usr/local/bin/droiddeck-fex run --mode on --)
+      else
+        for fex in FEXInterpreter FEXLoader fex-emu box64; do
+          if command -v "$fex" >/dev/null 2>&1; then
+            SEVENZ_PREFIX=("$fex")
+            break
+          fi
+        done
+      fi
+    fi
+    ;;
+  *)
+    if [ ! -x "$SEVENZ" ]; then
+      for cand in 7zz 7z 7za; do
+        if command -v "$cand" >/dev/null 2>&1; then
+          SEVENZ="$(command -v "$cand")"
+          break
+        fi
+      done
+    fi
+    ;;
+esac
+
+run_sevenz() {
+  if [ ${#SEVENZ_PREFIX[@]} -gt 0 ]; then
+    "${SEVENZ_PREFIX[@]}" "$SEVENZ" "$@"
+  else
+    "$SEVENZ" "$@"
+  fi
+}
+
+sevenz_available() {
+  if [ -x "$SEVENZ" ] || [ ${#SEVENZ_PREFIX[@]} -gt 0 ]; then
+    return 0
+  fi
+  return 1
+}
+
+archive_list_entries() {
+  local arc="$1"
+  if sevenz_available; then
+    run_sevenz l -ba -slt "$arc" 2>/dev/null | sed -n 's/^Path = //p' && return 0
+  fi
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -Z1 "$arc" 2>/dev/null && return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "import zipfile, sys; z=zipfile.ZipFile(sys.argv[1]); [print(n) for n in z.namelist()]" "$arc" 2>/dev/null && return 0
+  fi
+  return 1
+}
+
+archive_extract_to() {
+  local arc="$1" dest="$2"
+  if sevenz_available; then
+    run_sevenz x -bd -y -o"$dest" "$arc" >/dev/null 2>&1 && return 0
+  fi
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -q "$arc" -d "$dest" 2>/dev/null && return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "import zipfile, sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$arc" "$dest" 2>/dev/null && return 0
+  fi
+  return 1
+}
+
 zip_is_safe_and_usable() {
   local zip="$1" entries count expanded
-  entries="$(unzip -Z1 "$zip" 2>/dev/null)" || return 1
+  entries="$(archive_list_entries "$zip")" || return 1
   [[ -n "$entries" ]] || return 1
   if grep -Eq '(^/|^[A-Za-z]:|(^|[/\\])\.\.([/\\]|$)|\\)' <<<"$entries"; then return 1; fi
   if grep -Eq '(^|/)\.source-(name|index|priority)$' <<<"$entries"; then return 1; fi
-  if unzip -Z -l "$zip" 2>/dev/null | grep -Eq '^[lhbcps]'; then return 1; fi
+  if command -v unzip >/dev/null 2>&1 && unzip -Z -l "$zip" 2>/dev/null | grep -Eq '^[lhbcps]'; then return 1; fi
   count="$(printf '%s\n' "$entries" | wc -l)"
   [[ "$count" -le "$MAX_ARCHIVE_ENTRIES" ]] || return 1
-  expanded="$(unzip -Z -t "$zip" 2>/dev/null \
-    | awk '/bytes uncompressed/ { for (i=1;i<=NF;i++) if ($i=="bytes") {print $(i-1); exit} }')"
-  [[ "$expanded" =~ ^[0-9]+$ && "$expanded" -le "$MAX_EXPANDED_BYTES" ]] || return 1
+  if command -v unzip >/dev/null 2>&1; then
+    expanded="$(unzip -Z -t "$zip" 2>/dev/null \
+      | awk '/bytes uncompressed/ { for (i=1;i<=NF;i++) if ($i=="bytes") {print $(i-1); exit} }')"
+    if [[ "$expanded" =~ ^[0-9]+$ && "$expanded" -gt "$MAX_EXPANDED_BYTES" ]]; then return 1; fi
+  elif sevenz_available; then
+    expanded="$(run_sevenz l -slt "$zip" 2>/dev/null | awk -F' = ' '/^Size = [0-9]+$/ {s += $2} END {printf "%.0f", s}')"
+    if [[ "$expanded" =~ ^[0-9]+$ && "$expanded" -gt "$MAX_EXPANDED_BYTES" ]]; then return 1; fi
+  fi
   count="$(grep -Ec "(^|/)${APPID}\\.lua$" <<<"$entries")"
-  [[ "$count" -eq 1 ]]
+  [[ "$count" -ge 1 ]]
 }
 
 lua_is_safe_and_usable() {
@@ -201,7 +290,7 @@ extract_source() {
   printf -v dir '%s/source_%04d' "$EXTRACT_DIR" "${C_INDEX[i]}"
   rm -rf "$dir"; mkdir -p "$dir"
   if zip_is_safe_and_usable "${C_ZIP[i]}"; then
-    unzip -q "${C_ZIP[i]}" -d "$dir" || { rm -rf "$dir"; return 1; }
+    archive_extract_to "${C_ZIP[i]}" "$dir" || { rm -rf "$dir"; return 1; }
   elif lua_is_safe_and_usable "${C_ZIP[i]}"; then
     cp -- "${C_ZIP[i]}" "$dir/${APPID}.lua" || { rm -rf "$dir"; return 1; }
   else

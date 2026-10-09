@@ -19,3 +19,8 @@ plugin/backend/appidlogs.txt
 
 # Local backup of published release assets (not tracked).
 .release-backup/
+
+# Tool noise.
+.anchor/
+.omc/
+plugin/backend/.omc/

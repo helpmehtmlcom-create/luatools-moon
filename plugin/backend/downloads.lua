@@ -152,6 +152,7 @@ local function _merge_options(appid, sync_pins)
         home = home,
         steam_root = base_path,
         appinfo_text = appinfo_text,
+        write_appmanifest = true,
         read_file = m_utils.read_file,
         write_file = function(path, content)
             local ok, written = pcall(m_utils.write_file, path, content)

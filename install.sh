@@ -2160,7 +2160,10 @@ install_slsteam_moon() {
 	if is_droiddeck; then
 		mkdir -p "$HOME/.config/SLSsteam/manifests"
 		mkdir -p "$HOME/.local/share/SLSsteam/stplug-in"
-		mkdir -p "$HOME/.local/share/Steam"
+		mkdir -p "$HOME/.local/share/Steam/config/stplug-in"
+		mkdir -p "$HOME/.local/share/Steam/steamapps"
+		mkdir -p "$HOME/.steam/steam/config/stplug-in" 2>/dev/null || true
+		mkdir -p "$HOME/.steam/steam/steamapps" 2>/dev/null || true
 		touch "$HOME/.local/share/Steam/.cef-enable-remote-debugging" 2>/dev/null || true
 		touch "$HOME/.steam/steam/.cef-enable-remote-debugging" 2>/dev/null || true
 		seed_slsteam_config "$extract_root/res/config.yaml"
@@ -2476,10 +2479,22 @@ install_plugin() {
 	if is_droiddeck; then
 		local script_dir
 		script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
-		if [ -n "$script_dir" ] && [ -f "$script_dir/plugin/backend/scripts/downloader.sh" ]; then
-			cp -f "$script_dir/plugin/backend/scripts/downloader.sh" "$dest/backend/scripts/downloader.sh" 2>/dev/null || true
+		if [ -n "$script_dir" ]; then
+			for sname in downloader.sh restart_steam.sh smart_download.sh; do
+				if [ -f "$script_dir/plugin/backend/scripts/$sname" ]; then
+					cp -f "$script_dir/plugin/backend/scripts/$sname" "$dest/backend/scripts/$sname" 2>/dev/null || true
+					chmod +x "$dest/backend/scripts/$sname" 2>/dev/null || true
+				fi
+			done
+			for mname in smart_merge.lua steam_utils.lua downloads.lua; do
+				if [ -f "$script_dir/plugin/backend/$mname" ]; then
+					cp -f "$script_dir/plugin/backend/$mname" "$dest/backend/$mname" 2>/dev/null || true
+				fi
+			done
+			if [ -f "$script_dir/plugin/public/luatools.js" ]; then
+				cp -f "$script_dir/plugin/public/luatools.js" "$dest/public/luatools.js" 2>/dev/null || true
+			fi
 		fi
-		chmod +x "$dest/backend/scripts/downloader.sh" 2>/dev/null || true
 	fi
 }
 
