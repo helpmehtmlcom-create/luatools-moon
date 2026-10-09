@@ -1262,6 +1262,45 @@ check_dependencies() {
 	          "Abortado. Instale as ferramentas acima e rode este instalador novamente.")"
 }
 
+# True when system packages can be installed: already root, or sudo exists.
+# Android/PRoot/Termux shells often have neither, and apt then dies with
+# "you need root" (or "are you root?").
+can_escalate() {
+	[ "$(id -u)" -eq 0 ] && return 0
+	command -v sudo >/dev/null 2>&1
+}
+
+# Rootless jq: download the official static build into ~/.local/bin and verify
+# it against the release's sha256sum.txt. jq is the only hard dependency that
+# ships as a single static binary, so it is the one we can always self-provide.
+install_static_jq() {
+	local asset base tmp dest="$HOME/.local/bin" want got
+	case "$(uname -m)" in
+		aarch64|arm64) asset="jq-linux-arm64" ;;
+		x86_64|amd64)  asset="jq-linux-amd64" ;;
+		*) return 1 ;;
+	esac
+	base="https://github.com/jqlang/jq/releases/download/jq-1.7.1"
+	tmp="$(mktemp -d)" || return 1
+	log_info "$(L "No root access: downloading static jq to $dest" \
+	             "Sem acesso root: baixando jq estático em $dest")"
+	if ! curl -fsSL --connect-timeout 15 --max-time 120 "$base/$asset" -o "$tmp/jq" 2>/dev/null \
+	   || ! curl -fsSL --connect-timeout 15 --max-time 30 "$base/sha256sum.txt" -o "$tmp/sums" 2>/dev/null; then
+		rm -rf "$tmp"; return 1
+	fi
+	want="$(awk -v a="$asset" '$2 == a {print $1}' "$tmp/sums")"
+	got="$(sha256sum "$tmp/jq" 2>/dev/null | awk '{print $1}')"
+	if [ -z "$want" ] || [ "$want" != "$got" ]; then
+		log_error "$(L "Static jq checksum mismatch; refusing to install it." \
+		              "Checksum do jq estático não confere; instalação recusada.")"
+		rm -rf "$tmp"; return 1
+	fi
+	mkdir -p "$dest" && install -m 0755 "$tmp/jq" "$dest/jq" || { rm -rf "$tmp"; return 1; }
+	rm -rf "$tmp"
+	case ":$PATH:" in *":$dest:"*) ;; *) export PATH="$dest:$PATH" ;; esac
+	"$dest/jq" --version >/dev/null 2>&1
+}
+
 # Install the tools detected as missing by the preflight gate. Only reached on
 # mutable distros (NixOS and immutable systems already aborted in
 # check_dependencies), and only after the machine has been validated, so sudo
@@ -1277,13 +1316,33 @@ install_dependencies() {
 	local family; family="$(get_distro_family)"
 	log_warn "$(L "Installing missing tools: ${DEP_MISSING_PKGS[*]}" \
 	             "Instalando ferramentas ausentes: ${DEP_MISSING_PKGS[*]}")"
-	if [ "$family" = "unknown" ]; then
-		fail "$(L "Unknown distro — please install manually: ${DEP_MISSING_PKGS[*]}" \
-		          "Distro desconhecida — instale manualmente: ${DEP_MISSING_PKGS[*]}")"
+
+	if can_escalate && [ "$family" != "unknown" ]; then
+		if ! pm_install "$family" "${DEP_MISSING_PKGS[@]}"; then
+			log_warn "$(L "Package manager failed; trying rootless fallbacks." \
+			             "Gerenciador de pacotes falhou; tentando alternativas sem root.")"
+		fi
+	else
+		log_warn "$(L "No root/sudo available; trying rootless fallbacks." \
+		             "Sem root/sudo disponível; tentando alternativas sem root.")"
 	fi
-	if ! pm_install "$family" "${DEP_MISSING_PKGS[@]}"; then
-		fail "$(L "Failed to install: ${DEP_MISSING_PKGS[*]}. Install them manually and re-run." \
-		          "Falha ao instalar: ${DEP_MISSING_PKGS[*]}. Instale manualmente e rode de novo.")"
+
+	# Re-probe with the user-local bin dir visible, then self-provide jq.
+	case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+	detect_missing_tools
+	if printf '%s\n' "${DEP_MISSING_TOOLS[@]:-}" | grep -qx jq; then
+		install_static_jq || true
+		detect_missing_tools
+	fi
+
+	# notify-send only powers optional popups; everything else is essential.
+	local tool essential=()
+	for tool in "${DEP_MISSING_TOOLS[@]}"; do
+		[ "$tool" = "notify-send" ] || essential+=("$tool")
+	done
+	if [ "${#essential[@]}" -gt 0 ]; then
+		fail "$(L "Could not install: ${essential[*]}. Run as root (or install sudo), or install them manually (e.g. 'apt install ${essential[*]}') and re-run." \
+		          "Não foi possível instalar: ${essential[*]}. Rode como root (ou instale o sudo), ou instale manualmente (ex.: 'apt install ${essential[*]}') e rode de novo.")"
 	fi
 	log_success "$(L "Required tools present" "Ferramentas necessárias presentes")"
 }
