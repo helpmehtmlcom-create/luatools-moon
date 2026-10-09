@@ -5,14 +5,14 @@
 Set up slsteam-moon, Lumen and the LuaTools plugin automatically with a single command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/swwayps/luatools-moon/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/helpmehtmlcom-create/luatools-moon/main/install.sh | bash
 ```
 
 > **Requirements:** Linux x86_64 or **DroidDeck on ARM64** (e.g. Poco F9 Ultra) and **native Steam** installed. Flatpak and Snap Steam are not supported.
 >
 > **Running on DroidDeck (Android / ARM64)?** See the complete [DroidDeck Guide](DROIDDECK_GUIDE.md).
 >
-> **Want Steam theme support?** Use the [`millennium` branch](https://github.com/swwayps/luatools-moon/tree/millennium).
+> **Want Steam theme support?** Use the [`millennium` branch](https://github.com/helpmehtmlcom-create/luatools-moon/tree/millennium).
 
 ---
 
@@ -37,12 +37,12 @@ Reference material:
 
 ## Support
 
-Open an issue: https://github.com/swwayps/luatools-moon/issues
+Open an issue: https://github.com/helpmehtmlcom-create/luatools-moon/issues
 
 ## Uninstall
 
 Want to remove everything? Run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/swwayps/luatools-moon/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/helpmehtmlcom-create/luatools-moon/main/uninstall.sh | bash
 ```

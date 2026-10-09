@@ -75,6 +75,8 @@ fi
 # absent (degraded: no injection, but at least Steam restarts).
 LAUNCHER=""
 for candidate in \
+  "$HOME/.local/share/Steam/steamrtarm64/steam" \
+  "/usr/local/bin/droiddeck-steam" \
   "$HOME/.local/share/SLSsteam/path/steam" \
   "/usr/bin/steam" \
   "/usr/games/steam" \
@@ -84,7 +86,9 @@ for candidate in \
     break
   fi
 done
-if [ -z "$LAUNCHER" ] && command -v steam >/dev/null 2>&1; then
+if [ -z "$LAUNCHER" ] && command -v droiddeck-steam >/dev/null 2>&1; then
+  LAUNCHER="$(command -v droiddeck-steam)"
+elif [ -z "$LAUNCHER" ] && command -v steam >/dev/null 2>&1; then
   LAUNCHER="$(command -v steam)"
 fi
 
@@ -139,6 +143,7 @@ since_ms() { # $1 start stamp from now_ms
 client_alive() {
   pgrep -x steam >/dev/null 2>&1 && return 0
   pgrep -x steamwebhelper >/dev/null 2>&1 && return 0
+  pgrep -f 'steamrtarm64/steam' >/dev/null 2>&1 && return 0
   return 1
 }
 
@@ -161,7 +166,11 @@ restart_begin="$(now_ms)"
 # precisely the cost this path exists to avoid.
 if client_alive; then
   shutdown_begin="$(now_ms)"
-  if command -v steam >/dev/null 2>&1; then
+  if [ -x "$HOME/.local/share/Steam/steamrtarm64/steam" ]; then
+    "$HOME/.local/share/Steam/steamrtarm64/steam" -shutdown >/dev/null 2>&1 || true
+  elif command -v droiddeck-steam >/dev/null 2>&1; then
+    droiddeck-steam -shutdown >/dev/null 2>&1 || true
+  elif command -v steam >/dev/null 2>&1; then
     steam -shutdown >/dev/null 2>&1 || true
   fi
 
@@ -169,10 +178,12 @@ if client_alive; then
     restart_trace 'clean shutdown unfinished after 12s, escalating to SIGTERM'
     pkill -TERM -x steam >/dev/null 2>&1 || true
     pkill -TERM -x steamwebhelper >/dev/null 2>&1 || true
+    pkill -TERM -f 'steamrtarm64/steam' >/dev/null 2>&1 || true
     if ! await_client_exit 30; then  # up to ~3s
       restart_trace 'SIGTERM did not stop Steam, escalating to SIGKILL (next start will re-verify)'
       pkill -KILL -x steam >/dev/null 2>&1 || true
       pkill -KILL -x steamwebhelper >/dev/null 2>&1 || true
+      pkill -KILL -f 'steamrtarm64/steam' >/dev/null 2>&1 || true
       await_client_exit 20 || true
     fi
   fi

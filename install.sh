@@ -4,7 +4,7 @@
 # ============================================================================
 #  Installs the full stack in a single command:
 #
-#    curl -fsSL https://raw.githubusercontent.com/swwayps/luatools-moon/main/install.sh | bash
+#    curl -fsSL https://raw.githubusercontent.com/helpmehtmlcom-create/luatools-moon/main/install.sh | bash
 #
 #  Pipeline:
 #    1. Pre-flight checks (not-root, x86_64, internet, NATIVE Steam).
@@ -43,6 +43,8 @@ SLS_BETA_PATH="dist/slsteam-moon-linux.zip"
 SLS_ASSET_GLOB="^${SLS_ASSET_PREFIX}-.*-lumen\\.zip$"
 
 PLUGIN_REPO="swwayps/luatools-moon"
+PLUGIN_RAW_REPO="helpmehtmlcom-create/luatools-moon"
+PLUGIN_RAW_BRANCH="${PLUGIN_RAW_BRANCH:-main}"
 PLUGIN_ASSET="luatools-linux.zip"
 PLUGIN_BETA_PATH="dist/luatools-linux.zip"
 PLUGIN_NAME="luatools"                          # plugin.json "name"
@@ -2127,7 +2129,7 @@ deploy_droiddeck_lumen_aux() {
 		cp -f "$script_dir/lumen-aux/lumen-runner.sh" "$dest/lumen"
 	else
 		curl -fsSL --connect-timeout 10 --max-time 30 \
-			"https://raw.githubusercontent.com/${PLUGIN_REPO}/main/lumen-aux/lumen-runner.sh" \
+			"https://raw.githubusercontent.com/${PLUGIN_RAW_REPO}/${PLUGIN_RAW_BRANCH}/lumen-aux/lumen-runner.sh" \
 			-o "$dest/lumen" 2>/dev/null || true
 	fi
 	chmod +x "$dest/lumen" "$dest/lumen.bin" 2>/dev/null || true
@@ -2137,7 +2139,7 @@ deploy_droiddeck_lumen_aux() {
 		cp -f "$script_dir/lumen-aux/peerauth.lua" "$dest/lua/peerauth.lua"
 	else
 		curl -fsSL --connect-timeout 10 --max-time 30 \
-			"https://raw.githubusercontent.com/${PLUGIN_REPO}/main/lumen-aux/peerauth.lua" \
+			"https://raw.githubusercontent.com/${PLUGIN_RAW_REPO}/${PLUGIN_RAW_BRANCH}/lumen-aux/peerauth.lua" \
 			-o "$dest/lua/peerauth.lua" 2>/dev/null || true
 	fi
 
@@ -2146,7 +2148,7 @@ deploy_droiddeck_lumen_aux() {
 		cp -f "$script_dir/lumen-aux/cefport.lua" "$dest/lua/cefport.lua"
 	else
 		curl -fsSL --connect-timeout 10 --max-time 30 \
-			"https://raw.githubusercontent.com/${PLUGIN_REPO}/main/lumen-aux/cefport.lua" \
+			"https://raw.githubusercontent.com/${PLUGIN_RAW_REPO}/${PLUGIN_RAW_BRANCH}/lumen-aux/cefport.lua" \
 			-o "$dest/lua/cefport.lua" 2>/dev/null || true
 	fi
 
@@ -2589,7 +2591,7 @@ install_droiddeck_hook() {
 		cp -f "$script_dir/scripts/droiddeck-luatools-hook.sh" "$hook_dest"
 	else
 		curl -fsSL --connect-timeout 10 --max-time 30 \
-			"https://raw.githubusercontent.com/${PLUGIN_REPO}/main/scripts/droiddeck-luatools-hook.sh" \
+			"https://raw.githubusercontent.com/${PLUGIN_RAW_REPO}/${PLUGIN_RAW_BRANCH}/scripts/droiddeck-luatools-hook.sh" \
 			-o "$hook_dest" 2>/dev/null || true
 	fi
 	chmod +x "$hook_dest" 2>/dev/null || true

@@ -77,7 +77,7 @@ Open your DroidDeck desktop terminal (or SSH into the DroidDeck container):
 
 #### Option A: One-Shot Online Installer
 ```bash
-curl -fsSL https://raw.githubusercontent.com/swwayps/luatools-moon/droiddeck/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/helpmehtmlcom-create/luatools-moon/main/install.sh | bash
 ```
 
 #### Option B: Local Repository Installation

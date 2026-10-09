@@ -296,19 +296,34 @@ if [ -n "$EXTRACT_DIR" ]; then
   # or run bundled x86_64 7zz through droiddeck-fex / fex-emu if available.
   SEVENZ="$SCRIPT_DIR/../bin/7zz"
   SEVENZ_PREFIX=()
-  if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
-    if command -v 7zz >/dev/null 2>&1; then
-      SEVENZ="$(command -v 7zz)"
-    elif command -v 7z >/dev/null 2>&1; then
-      SEVENZ="$(command -v 7z)"
-    elif [ -x "$SEVENZ" ]; then
-      if [ -x /usr/local/bin/droiddeck-fex ]; then
-        SEVENZ_PREFIX=(/usr/local/bin/droiddeck-fex run --mode on --)
-      elif command -v fex-emu >/dev/null 2>&1; then
-        SEVENZ_PREFIX=(fex-emu)
+  case "$(uname -m)" in
+    aarch64|arm64)
+      # Prefer native tools; bundled 7zz is x86_64 and needs a translator.
+      for cand in "$SCRIPT_DIR/../bin/7zz.arm64" "$SCRIPT_DIR/../bin/7zz-arm64"; do
+        [ -x "$cand" ] && SEVENZ="$cand" && break
+      done
+      if [ "$SEVENZ" = "$SCRIPT_DIR/../bin/7zz" ]; then
+        for cand in 7zz 7zz-arm64 7z 7zzs; do
+          if command -v "$cand" >/dev/null 2>&1; then
+            SEVENZ="$(command -v "$cand")"
+            break
+          fi
+        done
       fi
-    fi
-  fi
+      if [ "$SEVENZ" = "$SCRIPT_DIR/../bin/7zz" ] && [ -x "$SEVENZ" ]; then
+        if [ -x /usr/local/bin/droiddeck-fex ]; then
+          SEVENZ_PREFIX=(/usr/local/bin/droiddeck-fex run --mode on --)
+        else
+          for fex in FEXInterpreter FEXLoader fex-emu box64; do
+            if command -v "$fex" >/dev/null 2>&1; then
+              SEVENZ_PREFIX=("$fex")
+              break
+            fi
+          done
+        fi
+      fi
+      ;;
+  esac
 
   run_sevenz() {
     if [ ${#SEVENZ_PREFIX[@]} -gt 0 ]; then

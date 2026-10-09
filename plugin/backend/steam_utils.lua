@@ -10,12 +10,36 @@ local steam_utils = {}
 local STEAM_INSTALL_PATH = nil
 
 function steam_utils.detect_steam_install_path()
-    if STEAM_INSTALL_PATH then return STEAM_INSTALL_PATH end
+    if STEAM_INSTALL_PATH and STEAM_INSTALL_PATH ~= "" then return STEAM_INSTALL_PATH end
     local success, path = pcall(millennium.steam_path)
-    if success and path then
+    if success and path and path ~= "" then
         STEAM_INSTALL_PATH = path
         logger.log("LuaTools: Steam install path set to " .. tostring(STEAM_INSTALL_PATH))
         return STEAM_INSTALL_PATH
+    end
+
+    local env_steam = os.getenv("STEAM_DIR") or os.getenv("STEAM_ROOT")
+    if env_steam and env_steam ~= "" and fs.exists(env_steam) then
+        STEAM_INSTALL_PATH = env_steam
+        logger.log("LuaTools: Steam install path set from environment: " .. tostring(STEAM_INSTALL_PATH))
+        return STEAM_INSTALL_PATH
+    end
+
+    local home = os.getenv("HOME")
+    if home and home ~= "" then
+        local candidates = {
+            fs.join(home, ".local", "share", "Steam"),
+            fs.join(home, ".steam", "steam"),
+            fs.join(home, ".steam", "root"),
+            fs.join(home, ".steam", "debian-installation"),
+        }
+        for _, candidate in ipairs(candidates) do
+            if fs.exists(candidate) then
+                STEAM_INSTALL_PATH = candidate
+                logger.log("LuaTools: Steam install path resolved to fallback: " .. tostring(STEAM_INSTALL_PATH))
+                return STEAM_INSTALL_PATH
+            end
+        end
     end
     return ""
 end
